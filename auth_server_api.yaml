@@ -1,0 +1,321 @@
+openapi: 3.0.0
+info:
+  title: 統合認証サーバー API
+  description: |
+    複数のアプリケーション（Streamlit、Webアプリ等）で使用する統合認証サーバーのAPI仕様。
+    Google OAuth認証、トークン発行、APIプロキシ中継機能を提供します。
+
+    対応クライアント種別:
+    - Streamlitローカルアプリ
+    - Streamlit Cloud Runアプリ
+    - Webアプリ（Flask、FastAPI、React等）
+    - その他のPythonアプリ
+  version: 1.0.0
+  contact:
+    name: 情政府高校 IT部門
+
+servers:
+  - url: https://auth.yourcompany.com
+    description: 本番環境
+  - url: http://localhost:8080
+    description: ローカル開発環境
+
+tags:
+  - name: Authentication
+    description: Google OAuth認証関連
+  - name: API Proxy
+    description: APIプロキシ中継機能
+
+paths:
+  /login/{project_id}:
+    get:
+      tags:
+        - Authentication
+      summary: Google OAuth認証開始
+      description: |
+        指定されたプロジェクトIDに対してGoogle OAuth認証フローを開始します。
+        ユーザーをGoogle認証画面にリダイレクトします。
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          description: プロジェクト識別子（例: slide-video, attendance-system）
+          schema:
+            type: string
+            example: slide-video
+      responses:
+        '302':
+          description: Google OAuth認証画面にリダイレクト
+          headers:
+            Location:
+              schema:
+                type: string
+                example: https://accounts.google.com/o/oauth2/auth?client_id=...
+        '404':
+          description: プロジェクトIDが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /callback/{project_id}:
+    get:
+      tags:
+        - Authentication
+      summary: OAuth認証完了後のコールバック
+      description: |
+        Google OAuthから認証コードを受け取り、ユーザー情報を検証した後、
+        JWTトークンを発行してクライアントアプリにリダイレクトします。
+
+        クライアント種別による違い:
+        - Streamlitアプリ: URLパラメータでトークン返却（例: http://localhost:8501/?token=xxx）
+        - Webアプリ: セッションCookieでトークン保存 + /callback エンドポイントにリダイレクト
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          description: プロジェクト識別子
+          schema:
+            type: string
+            example: slide-video
+        - name: code
+          in: query
+          required: true
+          description: Google OAuthから受け取った認証コード
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          description: CSRF対策用のステート値
+          schema:
+            type: string
+      responses:
+        '302':
+          description: クライアントアプリにトークン付きでリダイレクト
+          headers:
+            Location:
+              schema:
+                type: string
+              examples:
+                streamlit_app:
+                  summary: Streamlitアプリの場合
+                  value: http://localhost:8501/?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                web_app:
+                  summary: Webアプリの場合
+                  value: https://attendance.i-seifu.jp/callback
+            Set-Cookie:
+              description: Webアプリの場合、トークンをセッションCookieに保存
+              schema:
+                type: string
+                example: auth_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; Path=/; HttpOnly; Secure; SameSite=Lax
+        '403':
+          description: アクセス拒否（ドメイン不一致、学生アカウント等）
+          content:
+            text/html:
+              schema:
+                type: string
+                example: |
+                  <h1>アクセス拒否</h1>
+                  <p>このプロジェクトは教職員専用です</p>
+        '500':
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/verify:
+    get:
+      tags:
+        - Authentication
+      summary: トークン検証
+      description: |
+        クライアントから送信されたJWTトークンを検証し、ユーザー情報を返します。
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: トークンが有効
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfo'
+        '401':
+          description: トークンが無効または期限切れ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/proxy:
+    post:
+      tags:
+        - API Proxy
+      summary: APIプロキシへの中継リクエスト
+      description: |
+        クライアントからのAPI呼び出しリクエストを受け取り、
+        認証サーバー側でclient_secretを付与してAPIプロキシサーバーに転送します。
+
+        【処理フロー】
+        1. JWTトークンを検証
+        2. ユーザーのclient_secretをSecret Managerから取得
+        3. HMAC署名を生成
+        4. APIプロキシサーバーに転送
+        5. レスポンスをクライアントに返却
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProxyRequest'
+      responses:
+        '200':
+          description: API呼び出し成功
+          content:
+            application/json:
+              schema:
+                type: object
+                description: APIプロキシからのレスポンス（エンドポイントにより異なる）
+              examples:
+                openai_image:
+                  summary: OpenAI画像生成のレスポンス
+                  value:
+                    url: https://oaidalleapiprodscus.blob.core.windows.net/private/...
+                    revised_prompt: A professional educational slide background
+                anthropic_message:
+                  summary: Claude APIのレスポンス
+                  value:
+                    content:
+                      - type: text
+                        text: "スライドの内容を生成しました..."
+                    usage:
+                      input_tokens: 100
+                      output_tokens: 500
+        '401':
+          description: 認証エラー（トークン無効）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: リクエストエラー（必須パラメータ不足等）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: サーバーエラー
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        /callback エンドポイントで発行されるJWTトークンを使用します。
+
+        トークンペイロード例:
+        ```json
+        {
+          "email": "yamada@i-seifu.jp",
+          "name": "山田太郎",
+          "project_id": "slide-video",
+          "exp": 1738819200
+        }
+        ```
+
+  schemas:
+    ProxyRequest:
+      type: object
+      required:
+        - endpoint
+        - data
+      properties:
+        endpoint:
+          type: string
+          description: APIプロキシサーバーのエンドポイントパス
+          example: /api/openai/images/generate
+          enum:
+            - /api/openai/images/generate
+            - /api/anthropic/messages
+            - /api/google/tts
+            - /api/gemini/tts
+        data:
+          type: object
+          description: APIに送信するデータ（エンドポイントにより異なる）
+          example:
+            prompt: "A beautiful landscape"
+            size: "1024x1024"
+            quality: "standard"
+
+    UserInfo:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: yamada@i-seifu.jp
+        name:
+          type: string
+          example: 山田太郎
+        project_id:
+          type: string
+          example: slide-video
+        exp:
+          type: integer
+          format: int64
+          description: トークン有効期限（UNIX timestamp）
+          example: 1738819200
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: エラーメッセージ
+          example: Invalid token
+        detail:
+          type: string
+          description: 詳細なエラー情報（オプション）
+          example: Token has expired
+
+  examples:
+    ProxyRequestOpenAI:
+      summary: OpenAI画像生成リクエスト
+      value:
+        endpoint: /api/openai/images/generate
+        data:
+          prompt: "A professional educational slide background with geometric patterns"
+          model: "dall-e-3"
+          size: "1024x1024"
+          quality: "standard"
+          n: 1
+
+    ProxyRequestAnthropic:
+      summary: Claude APIリクエスト
+      value:
+        endpoint: /api/anthropic/messages
+        data:
+          model: claude-3-5-sonnet-20241022
+          messages:
+            - role: user
+              content: "スライドの内容を生成してください"
+          max_tokens: 4096
+          temperature: 1.0
+
+    ProxyRequestGoogleTTS:
+      summary: Google Cloud TTS リクエスト
+      value:
+        endpoint: /api/google/tts
+        data:
+          text: "こんにちは、これはテスト音声です"
+          voice_name: "ja-JP-Neural2-D"
+          language_code: "ja-JP"
