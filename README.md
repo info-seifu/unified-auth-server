@@ -20,29 +20,190 @@
 - `GET /api/verify` - トークン検証
 - `POST /api/proxy` - APIプロキシへの中継
 
-## 開発環境
+## 技術スタック
 
 - Python 3.9+
-- Flask または FastAPI
-- Google OAuth 2.0
+- FastAPI (Web framework)
+- Google OAuth 2.0 (Authlib)
+- JWT (PyJWT)
+- Firestore (オプション: プロジェクト設定管理)
 
-## 実装予定
+## セットアップ
 
-1. Phase 1: 基本的な認証フロー
-   - Google OAuth統合
-   - トークン発行
-   - プロジェクト別設定
+### 1. 必要なパッケージをインストール
 
-2. Phase 2: APIプロキシ統合
-   - `/api/proxy` エンドポイント実装
-   - client_secret管理
-   - HMAC署名生成
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Google OAuth認証の設定
+
+1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) にアクセス
+2. 新しいOAuth 2.0 クライアントIDを作成
+3. 認可済みリダイレクトURIに以下を追加:
+   - `http://localhost:8000/callback/test-project`
+   - `http://localhost:8000/callback/slide-video`
+   - 本番環境用: `https://your-auth-server.com/callback/{project_id}`
+
+### 3. 環境設定
+
+`.env.example` をコピーして `.env` を作成:
+
+```bash
+cp .env.example .env
+```
+
+`.env` ファイルを編集して以下を設定:
+
+```env
+# Google OAuth設定
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-your-client-secret
+
+# JWT署名キー（ランダムな文字列を生成）
+JWT_SECRET_KEY=your-secure-random-string
+```
+
+JWT_SECRET_KEYの生成方法:
+```python
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+### 4. 初期セットアップの確認（オプション）
+
+```bash
+python test_setup.py
+```
+
+## 開発サーバーの起動
+
+```bash
+python run_dev.py
+```
+
+サーバーは http://localhost:8000 で起動します。
+
+## 使い方
+
+### 1. ログインテスト
+
+ブラウザで以下のURLにアクセス:
+```
+http://localhost:8000/login/test-project
+```
+
+### 2. API ドキュメント
+
+FastAPIの自動生成ドキュメント:
+```
+http://localhost:8000/docs
+```
+
+### 3. トークン検証
+
+```bash
+# トークンを取得後
+curl http://localhost:8000/api/verify?token=YOUR_JWT_TOKEN
+```
+
+## プロジェクト構成
+
+```
+auth-server/
+├── app/
+│   ├── __init__.py
+│   ├── config.py           # 設定管理
+│   ├── main.py            # FastAPIアプリケーション
+│   ├── core/              # コア機能
+│   │   ├── __init__.py
+│   │   ├── errors.py      # エラーハンドリング
+│   │   ├── firestore_client.py  # Firestore接続
+│   │   ├── hmac_signer.py      # HMAC署名生成
+│   │   ├── jwt_handler.py       # JWT処理
+│   │   ├── oauth.py            # Google OAuth処理
+│   │   ├── project_config.py   # プロジェクト設定管理
+│   │   ├── secret_manager.py   # Secret Manager統合
+│   │   └── validators.py       # バリデーション
+│   ├── models/            # データモデル
+│   │   ├── __init__.py
+│   │   └── schemas.py     # Pydanticスキーマ
+│   └── routes/            # APIルート
+│       ├── __init__.py
+│       ├── auth.py        # 認証エンドポイント
+│       └── proxy.py       # APIプロキシエンドポイント
+├── requirements.txt       # Pythonパッケージ
+├── .env.example          # 環境設定サンプル
+├── run_dev.py            # 開発サーバー起動スクリプト
+├── test_setup.py         # 初期セットアップテスト
+├── DESIGN.md             # 設計書
+├── auth_server_api.yaml  # OpenAPI仕様
+└── README.md             # このファイル
+```
+
+## 開発モードの機能
+
+開発モードでは以下の追加エンドポイントが利用可能:
+
+- `GET /api/config` - 現在の設定を確認
+- `GET /api/projects` - 利用可能なプロジェクト一覧
+- `GET /api/projects/{project_id}` - プロジェクト設定の詳細
+
+## テスト用プロジェクト
+
+開発環境では以下のプロジェクトが事前設定されています:
+
+### test-project
+- 用途: 開発・テスト用
+- 特徴: Gmailアドレスも許可（テスト用）
+- ログインURL: http://localhost:8000/login/test-project
+
+### slide-video
+- 用途: スライド動画生成システム用
+- 特徴: @i-seifu.jp ドメインのみ許可
+- ログインURL: http://localhost:8000/login/slide-video
+
+## 実装状況
+
+✅ **Phase 1: 基本認証機能（完了）**
+- Google OAuth統合
+- JWTトークン発行
+- プロジェクト設定管理
+- ドメイン・学生アカウント検証
+
+✅ **Phase 2: APIプロキシ統合（完了）**
+- `/api/proxy` エンドポイント
+- Secret Manager統合（client_secret管理）
+- HMAC署名生成
+- APIプロキシサーバーへの中継
+
+## トラブルシューティング
+
+### ModuleNotFoundError
+
+```bash
+pip install -r requirements.txt
+```
+
+### Google OAuth エラー
+
+1. `.env` ファイルの `GOOGLE_CLIENT_ID` と `GOOGLE_CLIENT_SECRET` を確認
+2. Google Cloud Console でリダイレクトURIが正しく設定されているか確認
+
+### ポート使用中エラー
+
+```bash
+# ポート8000を使用しているプロセスを確認
+netstat -ano | findstr :8000
+
+# 別のポートで起動
+PORT=8001 python run_dev.py
+```
 
 ## 関連プロジェクト
 
 - **APIプロキシサーバー**: `C:\Users\濱田英樹\Documents\dev\api-key-server\api-key-server`
 - **クライアント（スライド動画生成）**: `C:\Users\濱田英樹\Documents\dev\SlideMovie\sogo-slide-local-video`
 
-## セットアップ
+## ライセンス
 
-（実装後に記載）
+（プロジェクトのライセンスを記載）
