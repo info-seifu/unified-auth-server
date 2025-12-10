@@ -215,15 +215,22 @@ async def proxy_request(
         body=proxy_req.data
     )
 
-    # Log the API call
+    # Log the API call with enhanced details
+    from datetime import datetime
+    log_details = {
+        'endpoint': proxy_req.endpoint,
+        'product_id': product_id,
+        'method': proxy_req.method.upper(),
+        'request_size': len(str(proxy_req.data)) if proxy_req.data else 0,
+        'has_headers': bool(proxy_req.headers),
+        'timestamp': datetime.utcnow().isoformat()
+    }
+
     await firestore_manager.log_audit_event(
         event_type='api_proxy_call',
         project_id=project_id,
         user_email=email,
-        details={
-            'endpoint': proxy_req.endpoint,
-            'product_id': product_id
-        },
+        details=log_details,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get('user-agent')
     )

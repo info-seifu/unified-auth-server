@@ -106,12 +106,17 @@ async def callback(
         try:
             validate_user_access(user_info['email'], project_config)
         except Exception as e:
-            # Log failed attempt
+            # Log failed attempt with enhanced details
             await firestore_manager.log_audit_event(
                 event_type='login_failed',
                 project_id=project_id,
                 user_email=user_info['email'],
-                details={'reason': str(e)},
+                details={
+                    'reason': str(e),
+                    'error_code': getattr(e, 'error_code', 'UNKNOWN'),
+                    'domain': user_info['email'].split('@')[1],
+                    'is_student': validators.is_student_account(user_info['email'])
+                },
                 ip_address=request.client.host,
                 user_agent=request.headers.get('user-agent')
             )
@@ -126,12 +131,18 @@ async def callback(
             expiry_days=token_expiry_days
         )
 
-        # Log successful login
+        # Log successful login with enhanced details
         await firestore_manager.log_audit_event(
             event_type='login_success',
             project_id=project_id,
             user_email=user_info['email'],
-            details={'name': user_info['name']},
+            details={
+                'name': user_info['name'],
+                'domain': user_info['email'].split('@')[1],
+                'is_student': validators.is_student_account(user_info['email']),
+                'login_method': 'google_oauth',
+                'token_expiry_days': project_config.get('token_expiry_days', 30)
+            },
             ip_address=request.client.host,
             user_agent=request.headers.get('user-agent')
         )

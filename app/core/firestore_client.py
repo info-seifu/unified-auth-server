@@ -2,7 +2,8 @@
 
 import os
 import logging
-from typing import Optional, Dict, Any
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List
 
 from google.cloud import firestore
 from google.cloud.firestore import Client
@@ -132,6 +133,216 @@ class FirestoreManager:
             logger.debug(f"Saved user settings for {email}")
         except Exception as e:
             logger.error(f"Failed to save user settings: {str(e)}")
+
+    async def get_audit_logs(
+        self,
+        project_id: Optional[str] = None,
+        user_email: Optional[str] = None,
+        event_type: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Get audit logs with filtering options
+
+        Args:
+            project_id: Filter by project ID
+            user_email: Filter by user email
+            event_type: Filter by event type
+            start_date: Filter logs after this date
+            end_date: Filter logs before this date
+            limit: Maximum number of logs to return
+
+        Returns:
+            List of audit log entries
+        """
+        if not self.client:
+            return []
+
+        try:
+            query = self.client.collection('audit_logs')
+
+            # Apply filters
+            if project_id:
+                query = query.where('project_id', '==', project_id)
+            if user_email:
+                query = query.where('user_email', '==', user_email)
+            if event_type:
+                query = query.where('event_type', '==', event_type)
+            if start_date:
+                query = query.where('timestamp', '>=', start_date)
+            if end_date:
+                query = query.where('timestamp', '<=', end_date)
+
+            # Order by timestamp descending and limit
+            query = query.order_by('timestamp', direction=firestore.Query.DESCENDING).limit(limit)
+
+            logs = []
+            for doc in query.stream():
+                log_entry = doc.to_dict()
+                log_entry['id'] = doc.id
+                logs.append(log_entry)
+
+            return logs
+
+        except Exception as e:
+            logger.error(f"Failed to get audit logs: {str(e)}")
+            return []
+
+    async def get_login_history(
+        self,
+        user_email: str,
+        days: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        Get login history for a specific user
+
+        Args:
+            user_email: User's email
+            days: Number of days to look back (default: 30)
+
+        Returns:
+            List of login events
+        """
+        if not self.client:
+            return []
+
+        try:
+            start_date = datetime.utcnow() - timedelta(days=days)
+            query = self.client.collection('audit_logs') \
+                .where('user_email', '==', user_email) \
+                .where('event_type', 'in', ['login_success', 'login_failed']) \
+                .where('timestamp', '>=', start_date) \
+                .order_by('timestamp', direction=firestore.Query.DESCENDING) \
+                .limit(100)
+
+            history = []
+            for doc in query.stream():
+                entry = doc.to_dict()
+                entry['id'] = doc.id
+                history.append(entry)
+
+            return history
+
+        except Exception as e:
+            logger.error(f"Failed to get login history: {str(e)}")
+            return []
+
+    async def get_audit_statistics(
+        self,
+        project_id: Optional[str] = None,
+        days: int = 7
+    ) -> Dict[str, Any]:
+        """
+        Get audit statistics for monitoring
+
+        Args:
+            project_id: Project ID (optional, for project-specific stats)
+            days: Number of days to analyze (default: 7)
+
+        Returns:
+            Dictionary containing statistics
+        """
+        if not self.client:
+            return {
+                'total_logins': 0,
+                'failed_logins': 0,
+                'unique_users': 0,
+                'api_calls': 0
+            }
+
+        try:
+            start_date = datetime.utcnow() - timedelta(days=days)
+            base_query = self.client.collection('audit_logs').where('timestamp', '>=', start_date)
+
+            if project_id:
+                base_query = base_query.where('project_id', '==', project_id)
+
+            # Count different event types
+            stats = {
+                'total_logins': 0,
+                'failed_logins': 0,
+                'unique_users': set(),
+                'api_calls': 0,
+                'by_event_type': {}
+            }
+
+            for doc in base_query.stream():
+                data = doc.to_dict()
+                event_type = data.get('event_type', '')
+
+                # Count by event type
+                stats['by_event_type'][event_type] = stats['by_event_type'].get(event_type, 0) + 1
+
+                # Specific counters
+                if event_type == 'login_success':
+                    stats['total_logins'] += 1
+                elif event_type == 'login_failed':
+                    stats['failed_logins'] += 1
+                elif event_type == 'api_proxy_call':
+                    stats['api_calls'] += 1
+
+                # Track unique users
+                if 'user_email' in data:
+                    stats['unique_users'].add(data['user_email'])
+
+            # Convert set to count
+            stats['unique_users'] = len(stats['unique_users'])
+
+            return stats
+
+        except Exception as e:
+            logger.error(f"Failed to get audit statistics: {str(e)}")
+            return {
+                'total_logins': 0,
+                'failed_logins': 0,
+                'unique_users': 0,
+                'api_calls': 0
+            }
+
+    async def cleanup_old_logs(self, retention_days: int = 90) -> int:
+        """
+        Delete audit logs older than retention period
+
+        Args:
+            retention_days: Number of days to retain logs (default: 90)
+
+        Returns:
+            Number of deleted documents
+        """
+        if not self.client:
+            return 0
+
+        try:
+            cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+            old_logs = self.client.collection('audit_logs').where('timestamp', '<', cutoff_date)
+
+            deleted_count = 0
+            batch = self.client.batch()
+            batch_size = 0
+
+            for doc in old_logs.stream():
+                batch.delete(doc.reference)
+                batch_size += 1
+                deleted_count += 1
+
+                # Commit batch every 500 documents
+                if batch_size >= 500:
+                    batch.commit()
+                    batch = self.client.batch()
+                    batch_size = 0
+
+            # Commit remaining documents
+            if batch_size > 0:
+                batch.commit()
+
+            logger.info(f"Cleaned up {deleted_count} old audit logs")
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Failed to cleanup old logs: {str(e)}")
+            return 0
 
 
 # Create singleton instance

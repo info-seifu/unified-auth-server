@@ -15,10 +15,18 @@
 
 ## エンドポイント
 
+### 認証関連
 - `GET /login/{project_id}` - Google OAuth認証開始
 - `GET /callback/{project_id}` - OAuth認証完了後のコールバック
 - `GET /api/verify` - トークン検証
 - `POST /api/proxy` - APIプロキシへの中継
+
+### 監査ログ関連 (Phase 3)
+- `GET /api/audit/logs` - 監査ログの取得
+- `GET /api/audit/login-history` - ログイン履歴の取得
+- `GET /api/audit/statistics` - 統計情報の取得
+- `GET /api/audit/export` - ログのエクスポート
+- `POST /api/audit/cleanup` - 古いログの削除（管理者のみ）
 
 ## 技術スタック
 
@@ -130,7 +138,8 @@ auth-server/
 │   └── routes/            # APIルート
 │       ├── __init__.py
 │       ├── auth.py        # 認証エンドポイント
-│       └── proxy.py       # APIプロキシエンドポイント
+│       ├── proxy.py       # APIプロキシエンドポイント
+│       └── audit.py       # 監査ログエンドポイント
 ├── requirements.txt       # Pythonパッケージ
 ├── .env.example          # 環境設定サンプル
 ├── run_dev.py            # 開発サーバー起動スクリプト
@@ -175,6 +184,15 @@ auth-server/
 - Secret Manager統合（client_secret管理）
 - HMAC署名生成
 - APIプロキシサーバーへの中継
+
+✅ **Phase 3: 監査ログ機能（完了）**
+- ログイン成功/失敗の記録
+- API呼び出しの詳細記録
+- ログの検索・フィルタリング機能
+- ユーザー別ログイン履歴
+- 統計情報の集計（ログイン数、ユニークユーザー数、API呼び出し数など）
+- 古いログの自動削除機能（デフォルト: 90日保持）
+- JSON形式でのエクスポート機能
 
 ## トラブルシューティング
 

@@ -8,7 +8,7 @@ import logging
 import secrets
 
 from app.config import settings
-from app.routes import auth, proxy
+from app.routes import auth, proxy, audit
 from app.models.schemas import HealthCheckResponse, ServiceInfoResponse
 
 # Configure logging
@@ -135,6 +135,7 @@ async def internal_error_handler(request: Request, exc: Exception):
 # Include routers
 app.include_router(auth.router, tags=["Authentication"])
 app.include_router(proxy.router, tags=["API Proxy"])
+app.include_router(audit.router, tags=["Audit Logs"])
 
 
 # Development endpoints (only in development mode)
