@@ -1,6 +1,6 @@
 """Project configuration management"""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from app.config import settings, LOCAL_PROJECT_CONFIGS
 from app.core.errors import ProjectNotFoundError
 import logging

@@ -1,10 +1,9 @@
 """Configuration settings for the auth server"""
 
 from typing import List, Optional, Dict, Any
-import os
 
-from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -77,32 +76,28 @@ class Settings(BaseSettings):
     # Development Mode
     use_local_config: bool = Field(default=False, alias="USE_LOCAL_CONFIG")
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore"
+    )
 
-        @classmethod
-        def parse_env_var(cls, field_name: str, raw_val: str):
-            # Handle comma-separated lists for domains and CORS origins
-            if field_name in ["allowed_domains", "cors_origins"]:
-                if "," in raw_val:
-                    return [domain.strip() for domain in raw_val.split(",")]
-            return raw_val
+    @field_validator("allowed_domains", mode="before")
+    @classmethod
+    def parse_allowed_domains(cls, v):
+        """Parse comma-separated domains from environment variable"""
+        if isinstance(v, str):
+            return [domain.strip() for domain in v.split(",")]
+        return v
 
-    def __init__(self, **values):
-        # Parse comma-separated environment variables
-        if "ALLOWED_DOMAINS" in os.environ:
-            domains = os.environ["ALLOWED_DOMAINS"]
-            if "," in domains:
-                values["allowed_domains"] = [d.strip() for d in domains.split(",")]
-
-        if "CORS_ORIGINS" in os.environ:
-            origins = os.environ["CORS_ORIGINS"]
-            if "," in origins:
-                values["cors_origins"] = [o.strip() for o in origins.split(",")]
-
-        super().__init__(**values)
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse comma-separated origins from environment variable"""
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",")]
+        return v
 
     @property
     def is_development(self) -> bool:

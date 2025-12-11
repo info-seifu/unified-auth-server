@@ -7,9 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from app.core.firestore_client import firestore_manager
-from app.core.jwt_handler import jwt_handler
 from app.models.schemas import ErrorResponse
-from app.routes.auth import verify_token_dependency
+from app.routes.proxy import verify_token_dependency
 
 router = APIRouter()
 
@@ -37,7 +36,7 @@ async def get_audit_logs(
     Only returns logs for the authenticated user's project unless they are an admin.
     """
     # Extract user info from token
-    requester_email = token_payload.get("email", "")
+    _requester_email = token_payload.get("email", "")  # Reserved for future admin checks
     requester_project = token_payload.get("project_id", "")
 
     # For non-admin users, restrict to their own logs

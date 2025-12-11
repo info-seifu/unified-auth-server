@@ -99,7 +99,7 @@ class SecretManagerClient:
         credentials = self.get_secret_json(secret_name)
 
         if not credentials:
-            logger.warning(f"OAuth credentials not found in Secret Manager, using env vars")
+            logger.warning("OAuth credentials not found in Secret Manager, using env vars")
             return {
                 "client_id": settings.google_client_id,
                 "client_secret": settings.google_client_secret

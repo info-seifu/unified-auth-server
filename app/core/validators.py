@@ -143,7 +143,7 @@ def validate_admin_access(
     if email.lower() in admin_emails_lower:
         return True, None
 
-    return False, f"Access restricted to administrators only"
+    return False, "Access restricted to administrators only"
 
 
 def validate_group_membership(

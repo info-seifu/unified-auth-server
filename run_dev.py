@@ -38,7 +38,7 @@ if not env_file.exists():
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)  # Override existing environment variables
 
 # Check required environment variables
 required_vars = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "JWT_SECRET_KEY"]

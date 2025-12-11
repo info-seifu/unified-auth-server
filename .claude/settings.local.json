@@ -9,7 +9,16 @@
       "Bash(git push:*)",
       "Bash(python -m py_compile:*)",
       "Bash(python -c:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(source venv/bin/activate)",
+      "Bash(pip install:*)",
+      "Bash(timeout 10 uvicorn:*)",
+      "Bash(uvicorn:*)",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(cat:*)",
+      "Bash(python run_dev.py:*)",
+      "Bash(ruff check:*)"
     ],
     "deny": [],
     "ask": []

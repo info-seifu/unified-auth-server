@@ -1,7 +1,7 @@
 """Authentication routes"""
 
 from fastapi import APIRouter, Request, Query, HTTPException, Header
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse
 from typing import Optional
 import logging
 import urllib.parse
@@ -11,6 +11,7 @@ from app.core.oauth import google_oauth_handler
 from app.core.jwt_handler import jwt_handler
 from app.core.project_config import project_config_manager
 from app.core.validators import validate_user_access, validate_redirect_uri
+from app.core import validators  # Import validators module for is_student_email()
 from app.core.firestore_client import firestore_manager
 from app.core.errors import ProjectNotFoundError
 from app.models.schemas import UserInfo, ErrorResponse, TokenResponse
@@ -115,7 +116,7 @@ async def callback(
                     'reason': str(e),
                     'error_code': getattr(e, 'error_code', 'UNKNOWN'),
                     'domain': user_info['email'].split('@')[1],
-                    'is_student': validators.is_student_account(user_info['email'])
+                    'is_student': validators.is_student_email(user_info['email'])
                 },
                 ip_address=request.client.host,
                 user_agent=request.headers.get('user-agent')
@@ -139,7 +140,7 @@ async def callback(
             details={
                 'name': user_info['name'],
                 'domain': user_info['email'].split('@')[1],
-                'is_student': validators.is_student_account(user_info['email']),
+                'is_student': validators.is_student_email(user_info['email']),
                 'login_method': 'google_oauth',
                 'token_expiry_days': project_config.get('token_expiry_days', 30)
             },

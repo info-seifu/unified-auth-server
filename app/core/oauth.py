@@ -2,9 +2,7 @@
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import Request
-from fastapi.responses import RedirectResponse
 from typing import Dict, Any, Optional, Tuple
-import secrets
 import logging
 from app.config import settings
 
@@ -50,11 +48,7 @@ class GoogleOAuthHandler:
         Returns:
             Tuple of (authorization_url, state)
         """
-        # Generate state token for CSRF protection
-        state = secrets.token_urlsafe(32)
-
-        # Store state and project_id in session
-        request.session['oauth_state'] = state
+        # Store project_id in session for callback
         request.session['project_id'] = project_id
 
         # Build redirect URI
@@ -69,15 +63,17 @@ class GoogleOAuthHandler:
                 host = request.headers.get('host', 'localhost:8000')
                 redirect_uri = f"http://{host}/callback/{project_id}"
 
-        # Create authorization URL
-        authorization_url = await self.google_client.create_authorization_url(
-            redirect_uri,
-            state=state
+        # Create authorization URL - Authlib will automatically handle state
+        # IMPORTANT: Pass request as first argument so Authlib can save state in session
+        authorization_result = await self.google_client.authorize_redirect(
+            request,
+            redirect_uri
         )
 
-        # Handle tuple return from create_authorization_url
-        if isinstance(authorization_url, tuple):
-            authorization_url = authorization_url[0]
+        # authorize_redirect returns a RedirectResponse, extract the URL
+        authorization_url = str(authorization_result.headers.get('location', ''))
+        # State is now stored in session by Authlib
+        state = request.session.get('_state_google_' + self.google_client.name, None)
 
         logger.info(f"Created authorization URL for project: {project_id}")
         return authorization_url, state
@@ -105,27 +101,9 @@ class GoogleOAuthHandler:
             OAuthError: If OAuth flow fails
             ValueError: If state doesn't match
         """
-        # Verify state token
-        stored_state = request.session.get('oauth_state')
-        if not stored_state or stored_state != state:
-            logger.warning("OAuth state mismatch")
-            raise ValueError("Invalid state token")
-
-        # Build redirect URI (must match exactly what was used in authorization)
-        if settings.is_production:
-            host = request.headers.get('host', 'auth.yourcompany.com')
-            redirect_uri = f"https://{host}/callback/{project_id}"
-        else:
-            host = request.headers.get('host', 'localhost:8000')
-            redirect_uri = f"http://{host}/callback/{project_id}"
-
         try:
-            # Exchange code for token
-            token = await self.google_client.authorize_access_token(
-                request,
-                code=code,
-                redirect_uri=redirect_uri
-            )
+            # Exchange code for token - Authlib will automatically verify state from session
+            token = await self.google_client.authorize_access_token(request)
 
             # Get user info from Google
             user_info = token.get('userinfo')
