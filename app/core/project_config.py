@@ -1,19 +1,27 @@
-"""Project configuration management"""
+"""Project configuration management
 
-from typing import Dict, Any
+Supports multiple configuration sources:
+1. Local config (development)
+2. Secret Manager (Cloud Run production)
+3. Firestore (if available)
+"""
+
+from typing import Dict, Any, Optional
 from app.config import settings, LOCAL_PROJECT_CONFIGS
 from app.core.errors import ProjectNotFoundError
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
 
 class ProjectConfigManager:
-    """Manage project configurations from Firestore or local settings"""
+    """Manage project configurations from Secret Manager, Firestore, or local settings"""
 
     def __init__(self):
         self.use_local_config = settings.use_local_config or settings.is_development
         self._firestore_client = None
+        self._config_cache: Dict[str, Dict[str, Any]] = {}
 
     @property
     def firestore_client(self):
@@ -23,9 +31,59 @@ class ProjectConfigManager:
             self._firestore_client = get_firestore_client()
         return self._firestore_client
 
+    def _get_from_secret_manager(self, project_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get project config from Secret Manager
+
+        Args:
+            project_id: Project identifier
+
+        Returns:
+            Project config dict or None if not found
+        """
+        if not settings.secret_manager_enabled:
+            return None
+
+        try:
+            from app.core.secret_manager import secret_manager_client
+            secret_name = f"project-config-{project_id}"
+            config_json = secret_manager_client.get_secret(secret_name)
+
+            if config_json:
+                config = json.loads(config_json)
+                logger.info(f"Loaded config from Secret Manager for project: {project_id}")
+                return config
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in Secret Manager for {project_id}: {str(e)}")
+        except Exception as e:
+            logger.warning(f"Could not get config from Secret Manager for {project_id}: {str(e)}")
+
+        return None
+
+    def clear_cache(self, project_id: Optional[str] = None) -> None:
+        """
+        Clear config cache
+
+        Args:
+            project_id: Specific project to clear, or None to clear all
+        """
+        if project_id:
+            self._config_cache.pop(project_id, None)
+            logger.info(f"Cleared cache for project: {project_id}")
+        else:
+            self._config_cache.clear()
+            logger.info("Cleared all project config cache")
+
     async def get_project_config(self, project_id: str) -> Dict[str, Any]:
         """
         Get project configuration
+
+        Priority order:
+        1. Cache (if available)
+        2. Local config (if use_local_config is True)
+        3. Secret Manager (if enabled)
+        4. Firestore (if available)
+        5. Fall back to local config
 
         Args:
             project_id: Project identifier
@@ -36,36 +94,51 @@ class ProjectConfigManager:
         Raises:
             ProjectNotFoundError: If project not found
         """
+        # Check cache first
+        if project_id in self._config_cache:
+            logger.debug(f"Using cached config for project: {project_id}")
+            return self._config_cache[project_id]
+
+        # Use local configuration for development
         if self.use_local_config:
-            # Use local configuration for development
             config = LOCAL_PROJECT_CONFIGS.get(project_id)
             if not config:
                 logger.warning(f"Project {project_id} not found in local config")
                 raise ProjectNotFoundError(project_id)
 
             logger.info(f"Using local config for project: {project_id}")
+            self._config_cache[project_id] = config
             return config
 
-        # Fetch from Firestore in production
+        # Try Secret Manager first (Cloud Run production)
+        config = self._get_from_secret_manager(project_id)
+        if config:
+            self._config_cache[project_id] = config
+            return config
+
+        # Try Firestore
         try:
             doc_ref = self.firestore_client.collection('projects').document(project_id)
             doc = doc_ref.get()
 
-            if not doc.exists:
-                logger.warning(f"Project {project_id} not found in Firestore")
-                raise ProjectNotFoundError(project_id)
-
-            config = doc.to_dict()
-            logger.info(f"Fetched config from Firestore for project: {project_id}")
-            return config
+            if doc.exists:
+                config = doc.to_dict()
+                logger.info(f"Fetched config from Firestore for project: {project_id}")
+                self._config_cache[project_id] = config
+                return config
 
         except Exception as e:
-            logger.error(f"Error fetching project config from Firestore: {str(e)}")
-            # Fall back to local config if available
-            if project_id in LOCAL_PROJECT_CONFIGS:
-                logger.info(f"Falling back to local config for project: {project_id}")
-                return LOCAL_PROJECT_CONFIGS[project_id]
-            raise ProjectNotFoundError(project_id)
+            logger.warning(f"Error fetching from Firestore: {str(e)}")
+
+        # Fall back to local config if available
+        if project_id in LOCAL_PROJECT_CONFIGS:
+            logger.info(f"Falling back to local config for project: {project_id}")
+            config = LOCAL_PROJECT_CONFIGS[project_id]
+            self._config_cache[project_id] = config
+            return config
+
+        logger.warning(f"Project {project_id} not found in any config source")
+        raise ProjectNotFoundError(project_id)
 
     async def list_projects(self) -> Dict[str, Dict[str, Any]]:
         """
