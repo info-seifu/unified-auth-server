@@ -13,6 +13,7 @@ from app.core.project_config import project_config_manager
 from app.core.validators import validate_user_access, validate_redirect_uri
 from app.core import validators  # Import validators module for is_student_email()
 from app.core.firestore_client import firestore_manager
+from app.core.workspace_admin import workspace_admin_client
 from app.core.errors import ProjectNotFoundError
 from app.models.schemas import UserInfo, ErrorResponse, TokenResponse
 
@@ -98,14 +99,52 @@ async def callback(
         # Get project configuration
         project_config = await project_config_manager.get_project_config(project_id)
 
-        # Handle OAuth callback
-        user_info = await google_oauth_handler.handle_callback(
+        # Handle OAuth callback and get user info + access token
+        user_info, access_token = await google_oauth_handler.handle_callback(
             request, code, state, project_id
         )
 
-        # Validate user access
+        # グループと組織部門の情報を取得（設定されている場合のみ）
+        user_groups = None
+        user_org_unit = None
+
+        # プロジェクト設定にグループまたはOU検証が含まれている場合のみ取得
+        if (project_config.get('required_groups') or
+            project_config.get('allowed_groups') or
+            project_config.get('required_org_units') or
+            project_config.get('allowed_org_units')):
+
+            if access_token:
+                try:
+                    # グループ情報の取得
+                    if project_config.get('required_groups') or project_config.get('allowed_groups'):
+                        user_groups = await workspace_admin_client.get_user_groups(
+                            access_token, user_info['email']
+                        )
+                        logger.info(f"Retrieved {len(user_groups)} groups for {user_info['email']}")
+
+                    # 組織部門情報の取得
+                    if project_config.get('required_org_units') or project_config.get('allowed_org_units'):
+                        user_org_unit = await workspace_admin_client.get_user_org_unit(
+                            access_token, user_info['email']
+                        )
+                        logger.info(f"Retrieved org unit '{user_org_unit}' for {user_info['email']}")
+
+                except Exception as e:
+                    logger.warning(f"Failed to retrieve workspace info: {str(e)}")
+                    # グループ・OU情報の取得に失敗した場合でも、検証は続行
+                    # （権限不足の場合は空リスト/Noneとして扱われる）
+            else:
+                logger.warning("Access token not available for workspace API calls")
+
+        # Validate user access with groups and org unit
         try:
-            validate_user_access(user_info['email'], project_config)
+            validate_user_access(
+                user_info['email'],
+                project_config,
+                user_groups=user_groups,
+                user_org_unit=user_org_unit
+            )
         except Exception as e:
             # Log failed attempt with enhanced details
             await firestore_manager.log_audit_event(
@@ -116,7 +155,9 @@ async def callback(
                     'reason': str(e),
                     'error_code': getattr(e, 'error_code', 'UNKNOWN'),
                     'domain': user_info['email'].split('@')[1],
-                    'is_student': validators.is_student_email(user_info['email'])
+                    'is_student': validators.is_student_email(user_info['email']),
+                    'groups': user_groups,
+                    'org_unit': user_org_unit
                 },
                 ip_address=request.client.host,
                 user_agent=request.headers.get('user-agent')
@@ -142,7 +183,9 @@ async def callback(
                 'domain': user_info['email'].split('@')[1],
                 'is_student': validators.is_student_email(user_info['email']),
                 'login_method': 'google_oauth',
-                'token_expiry_days': project_config.get('token_expiry_days', 30)
+                'token_expiry_days': project_config.get('token_expiry_days', 30),
+                'groups': user_groups,
+                'org_unit': user_org_unit
             },
             ip_address=request.client.host,
             user_agent=request.headers.get('user-agent')

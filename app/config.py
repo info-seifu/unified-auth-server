@@ -140,11 +140,31 @@ LOCAL_PROJECT_CONFIGS: Dict[str, Dict[str, Any]] = {
         "admin_emails": [],
         "required_groups": [],
         "allowed_groups": [],
+        "required_org_units": [],
+        "allowed_org_units": [],
         "redirect_uris": ["http://localhost:8501/"],
         "token_delivery": "query_param",
         "token_expiry_days": 30,
         "api_proxy_enabled": True,
         "product_id": "product-SlideVideo",
         "api_proxy_credentials_path": "projects/xxx/secrets/slidevideo-users"
+    },
+    "group-ou-test": {
+        "name": "グループ・OU認証テスト",
+        "type": "streamlit_local",
+        "description": "Google Workspaceグループと組織部門のテスト用プロジェクト",
+        "allowed_domains": ["i-seifu.jp", "i-seifu.ac.jp"],
+        "student_allowed": False,
+        "admin_emails": [],
+        # グループベース認証のテスト（教職員グループに所属していればOK）
+        "required_groups": [],
+        "allowed_groups": [],  # ["staff@i-seifu.jp"] をコメントアウト
+        # 組織部門ベース認証のテスト（法人部のみ許可）
+        "required_org_units": [],
+        "allowed_org_units": ["/法人部"],
+        "redirect_uris": ["http://localhost:8501/", "http://localhost:3000/callback"],
+        "token_delivery": "query_param",
+        "token_expiry_days": 30,
+        "api_proxy_enabled": False
     }
 }

@@ -9,7 +9,9 @@ from app.core.errors import (
     StudentNotAllowedError,
     AdminOnlyError,
     GroupMembershipRequiredError,
-    NoMatchingGroupError
+    NoMatchingGroupError,
+    OrgUnitMembershipRequiredError,
+    NoMatchingOrgUnitError
 )
 
 logger = logging.getLogger(__name__)
@@ -184,27 +186,87 @@ def validate_group_membership(
     return True, None
 
 
-def validate_user_access(
-    email: str,
-    project_config: Dict[str, Any],
-    user_groups: Optional[List[str]] = None
-) -> Tuple[bool, str]:
+def validate_org_unit_membership(
+    user_org_unit: Optional[str],
+    required_org_units: List[str],
+    allowed_org_units: List[str]
+) -> Tuple[bool, Optional[str]]:
     """
-    Comprehensive user access validation
+    組織部門（OU）のメンバーシップ要件を検証
 
     Args:
-        email: User's email address
-        project_config: Project configuration dictionary
-        user_groups: Optional list of user's groups
+        user_org_unit: ユーザーが属する組織部門パス（例: '/教職員/専任教員'）
+        required_org_units: 必須の組織部門リスト（AND条件）
+        allowed_org_units: 許可された組織部門リスト（OR条件）
 
     Returns:
         Tuple of (is_valid, error_message)
-        If valid, error_message will be empty string
+    """
+    from app.core.workspace_admin import workspace_admin_client
+
+    # ユーザーのOUが取得できない場合はチェックをスキップ
+    if user_org_unit is None:
+        if required_org_units or allowed_org_units:
+            logger.warning("User org unit is None but OU validation is configured")
+            return False, "Unable to retrieve user's organizational unit"
+        return True, None
+
+    # パスの正規化（末尾のスラッシュを削除）
+    user_org_unit_normalized = user_org_unit.rstrip('/')
+
+    # 必須OUチェック（ユーザーはすべての必須OUに属している必要がある）
+    if required_org_units:
+        missing_org_units = []
+        for required_ou in required_org_units:
+            if not workspace_admin_client.check_org_unit_hierarchy(
+                user_org_unit_normalized,
+                required_ou
+            ):
+                missing_org_units.append(required_ou)
+
+        if missing_org_units:
+            return False, f"User is not a member of required organizational units: {', '.join(missing_org_units)}"
+
+    # 許可されたOUチェック（ユーザーは少なくとも1つの許可されたOUに属している必要がある）
+    if allowed_org_units:
+        is_member_of_allowed = False
+        for allowed_ou in allowed_org_units:
+            if workspace_admin_client.check_org_unit_hierarchy(
+                user_org_unit_normalized,
+                allowed_ou
+            ):
+                is_member_of_allowed = True
+                break
+
+        if not is_member_of_allowed:
+            return False, f"User is not a member of any allowed organizational units: {', '.join(allowed_org_units)}"
+
+    return True, None
+
+
+def validate_user_access(
+    email: str,
+    project_config: Dict[str, Any],
+    user_groups: Optional[List[str]] = None,
+    user_org_unit: Optional[str] = None
+) -> Tuple[bool, str]:
+    """
+    包括的なユーザーアクセス検証
+
+    Args:
+        email: ユーザーのメールアドレス
+        project_config: プロジェクト設定辞書
+        user_groups: ユーザーが属するグループのリスト（オプション）
+        user_org_unit: ユーザーが属する組織部門パス（オプション）
+
+    Returns:
+        Tuple of (is_valid, error_message)
+        有効な場合、error_messageは空文字列
 
     Raises:
-        Various AuthError exceptions based on validation failure
+        検証失敗に基づく各種AuthErrorエラー
     """
-    # 1. Domain validation
+    # 1. ドメイン検証
     is_valid, error_msg = validate_domain(
         email,
         project_config.get('allowed_domains', [])
@@ -215,7 +277,7 @@ def validate_user_access(
             project_config.get('allowed_domains', [])
         )
 
-    # 2. Student account validation
+    # 2. 学生アカウント検証
     is_valid, error_msg = validate_student_access(
         email,
         project_config.get('student_allowed', True)
@@ -223,7 +285,7 @@ def validate_user_access(
     if not is_valid:
         raise StudentNotAllowedError(email)
 
-    # 3. Admin-only validation
+    # 3. 管理者専用検証
     is_valid, error_msg = validate_admin_access(
         email,
         project_config.get('admin_emails', [])
@@ -231,7 +293,7 @@ def validate_user_access(
     if not is_valid:
         raise AdminOnlyError(email)
 
-    # 4. Group membership validation (if groups provided)
+    # 4. グループメンバーシップ検証（グループが提供されている場合）
     if user_groups is not None:
         is_valid, error_msg = validate_group_membership(
             user_groups,
@@ -246,6 +308,23 @@ def validate_user_access(
             else:
                 raise NoMatchingGroupError(
                     project_config.get('allowed_groups', [])
+                )
+
+    # 5. 組織部門（OU）メンバーシップ検証（OUが提供されている場合）
+    if user_org_unit is not None:
+        is_valid, error_msg = validate_org_unit_membership(
+            user_org_unit,
+            project_config.get('required_org_units', []),
+            project_config.get('allowed_org_units', [])
+        )
+        if not is_valid:
+            if 'required' in error_msg:
+                raise OrgUnitMembershipRequiredError(
+                    project_config.get('required_org_units', [])
+                )
+            else:
+                raise NoMatchingOrgUnitError(
+                    project_config.get('allowed_org_units', [])
                 )
 
     logger.info(f"User {email} passed all validation checks")
