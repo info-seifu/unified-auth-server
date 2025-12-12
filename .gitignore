@@ -68,6 +68,10 @@ firebase-export*/
 service-account-key.json
 credentials.json
 
+# Service Account Keys (explicitly excluded for safety)
+*-service-account*.json
+winged-quanta-*.json
+
 # Temporary files
 *.tmp
 temp/

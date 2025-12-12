@@ -52,6 +52,18 @@ class Settings(BaseSettings):
         alias="API_PROXY_SERVER_URL"
     )
 
+    # Google Workspace Admin SDK Configuration (Service Account)
+    workspace_service_account_file: Optional[str] = Field(
+        default=None,
+        alias="WORKSPACE_SERVICE_ACCOUNT_FILE",
+        description="Path to service account JSON file for Admin SDK"
+    )
+    workspace_admin_email: Optional[str] = Field(
+        default=None,
+        alias="WORKSPACE_ADMIN_EMAIL",
+        description="Admin email for domain-wide delegation impersonation"
+    )
+
     # Allowed Domains
     allowed_domains: List[str] = Field(
         default_factory=lambda: ["i-seifu.jp", "i-seifu.ac.jp"],
@@ -158,10 +170,10 @@ LOCAL_PROJECT_CONFIGS: Dict[str, Dict[str, Any]] = {
         "admin_emails": [],
         # グループベース認証のテスト（教職員グループに所属していればOK）
         "required_groups": [],
-        "allowed_groups": [],  # ["staff@i-seifu.jp"] をコメントアウト
-        # 組織部門ベース認証のテスト（法人部のみ許可）
+        "allowed_groups": ["staff@i-seifu.jp"],
+        # 組織部門ベース認証（コメントアウト）
         "required_org_units": [],
-        "allowed_org_units": ["/法人部"],
+        "allowed_org_units": [],  # ["/総務部"] をコメントアウト
         "redirect_uris": ["http://localhost:8501/", "http://localhost:3000/callback"],
         "token_delivery": "query_param",
         "token_expiry_days": 30,
