@@ -42,6 +42,11 @@ Thumbs.db
 .env.*
 !.env.production.example
 
+# Service Account Keys (security)
+*-service-account*.json
+winged-quanta-*.json
+credentials.json
+
 # Git
 .git/
 .gitignore

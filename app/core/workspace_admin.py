@@ -3,13 +3,19 @@
 This module uses a service account with domain-wide delegation to access
 Admin SDK APIs, allowing any user's group and org unit information to be
 retrieved regardless of the user's admin privileges.
+
+Supports two authentication methods:
+1. Service account JSON file (local development)
+2. Application Default Credentials (Cloud Run with attached service account)
 """
 
 from typing import List, Optional
 import logging
+import json
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.oauth2 import service_account
+import google.auth
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +35,12 @@ class WorkspaceAdminClient:
     the auth server to retrieve this information for any user, regardless of
     their admin privileges.
 
+    Authentication methods:
+    1. Service account JSON file (for local development)
+    2. Application Default Credentials (for Cloud Run)
+
     Requirements:
     - Service account with domain-wide delegation enabled
-    - Service account JSON key file
     - Admin email for impersonation
     """
 
@@ -41,23 +50,39 @@ class WorkspaceAdminClient:
         self._credentials = None
         self._initialized = False
 
-    def initialize(self, service_account_file: str, admin_email: str) -> bool:
+    def initialize(self, service_account_file: Optional[str], admin_email: str, service_account_json: Optional[str] = None) -> bool:
         """
         Initialize the client with service account credentials
 
         Args:
-            service_account_file: Path to service account JSON key file
+            service_account_file: Path to service account JSON key file (None for Secret Manager)
             admin_email: Admin email for domain-wide delegation impersonation
+            service_account_json: JSON string of service account credentials (from Secret Manager)
 
         Returns:
             True if initialization successful, False otherwise
         """
         try:
-            # Create credentials from service account file
-            self._credentials = service_account.Credentials.from_service_account_file(
-                service_account_file,
-                scopes=SCOPES
-            )
+            if service_account_file:
+                # Method 1: Use service account JSON file (local development)
+                self._credentials = service_account.Credentials.from_service_account_file(
+                    service_account_file,
+                    scopes=SCOPES
+                )
+                logger.info("Using service account JSON file for authentication")
+            elif service_account_json:
+                # Method 2: Use service account JSON from Secret Manager (Cloud Run)
+                service_account_info = json.loads(service_account_json)
+                self._credentials = service_account.Credentials.from_service_account_info(
+                    service_account_info,
+                    scopes=SCOPES
+                )
+                logger.info("Using service account from Secret Manager")
+            else:
+                # Method 3: Use Application Default Credentials (fallback)
+                credentials, project = google.auth.default(scopes=SCOPES)
+                self._credentials = credentials
+                logger.info(f"Using Application Default Credentials (project: {project})")
 
             # Delegate credentials to impersonate admin user
             self._credentials = self._credentials.with_subject(admin_email)
@@ -71,7 +96,7 @@ class WorkspaceAdminClient:
             )
 
             self._initialized = True
-            logger.info(f"Workspace Admin client initialized with service account, impersonating {admin_email}")
+            logger.info(f"Workspace Admin client initialized, impersonating {admin_email}")
             return True
 
         except FileNotFoundError:
@@ -135,7 +160,8 @@ class WorkspaceAdminClient:
                     if e.resp.status == 403:
                         logger.error(
                             f"Permission denied when listing groups for {user_email}. "
-                            "Check service account domain-wide delegation settings."
+                            f"Check service account domain-wide delegation settings. "
+                            f"Error details: {e.error_details if hasattr(e, 'error_details') else 'N/A'}"
                         )
                         return []
                     elif e.resp.status == 404:
@@ -265,20 +291,42 @@ def initialize_workspace_admin_client() -> bool:
 
     This should be called during application startup.
 
+    Authentication priority:
+    1. If WORKSPACE_SERVICE_ACCOUNT_FILE is set, use JSON file (local dev)
+    2. If SECRET_MANAGER_ENABLED, try to get from Secret Manager (Cloud Run)
+    3. Otherwise, use Application Default Credentials (fallback)
+
     Returns:
         True if initialization successful, False otherwise
     """
     from app.config import settings
 
-    if not settings.workspace_service_account_file:
-        logger.info("Workspace service account file not configured. Group/OU validation will be disabled.")
+    if not settings.workspace_admin_email:
+        logger.info("Workspace admin email not configured. Group/OU validation will be disabled.")
         return False
 
-    if not settings.workspace_admin_email:
-        logger.warning("Workspace admin email not configured. Group/OU validation will be disabled.")
-        return False
+    service_account_json = None
+    service_account_file = settings.workspace_service_account_file
+
+    # Try to get from Secret Manager if enabled
+    if not service_account_file and settings.secret_manager_enabled:
+        try:
+            from app.core.secret_manager import secret_manager_client
+            service_account_json = secret_manager_client.get_secret("workspace-service-account")
+            if service_account_json:
+                logger.info("Retrieved service account from Secret Manager")
+        except Exception as e:
+            logger.warning(f"Failed to retrieve service account from Secret Manager: {str(e)}")
+
+    if service_account_file:
+        logger.info(f"Using service account file: {service_account_file}")
+    elif service_account_json:
+        logger.info("Using service account from Secret Manager")
+    else:
+        logger.info("No service account file or Secret Manager configured, will use Application Default Credentials")
 
     return workspace_admin_client.initialize(
-        settings.workspace_service_account_file,
-        settings.workspace_admin_email
+        service_account_file,
+        settings.workspace_admin_email,
+        service_account_json
     )
