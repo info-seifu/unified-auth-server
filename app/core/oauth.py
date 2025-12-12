@@ -25,7 +25,9 @@ class GoogleOAuthHandler:
             client_secret=settings.google_client_secret,
             server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
             client_kwargs={
-                'scope': 'openid email profile',
+                'scope': 'openid email profile '
+                         'https://www.googleapis.com/auth/admin.directory.group.readonly '
+                         'https://www.googleapis.com/auth/admin.directory.user.readonly',
                 'prompt': 'select_account',  # Always show account selector
             }
         )
@@ -84,7 +86,7 @@ class GoogleOAuthHandler:
         code: str,
         state: str,
         project_id: str
-    ) -> Dict[str, Any]:
+    ) -> Tuple[Dict[str, Any], str]:
         """
         Handle OAuth callback and exchange code for user info
 
@@ -95,7 +97,7 @@ class GoogleOAuthHandler:
             project_id: Project ID
 
         Returns:
-            User information dictionary
+            Tuple of (user_info_dict, access_token)
 
         Raises:
             OAuthError: If OAuth flow fails
@@ -126,8 +128,11 @@ class GoogleOAuthHandler:
                 'hd': user_info.get('hd'),  # Hosted domain (for Google Workspace)
             }
 
+            # Extract access token for Admin SDK calls
+            access_token = token.get('access_token', '')
+
             logger.info(f"OAuth successful for user: {result['email']}")
-            return result
+            return result, access_token
 
         except OAuthError as e:
             logger.error(f"OAuth error: {str(e)}")

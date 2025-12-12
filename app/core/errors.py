@@ -122,6 +122,30 @@ class NoMatchingGroupError(AuthError):
         )
 
 
+class OrgUnitMembershipRequiredError(AuthError):
+    """Raised when user is not a member of required organizational units"""
+
+    def __init__(self, required_org_units: list):
+        super().__init__(
+            error_code="AUTH_009",
+            message="User is not a member of required organizational units",
+            status_code=status.HTTP_403_FORBIDDEN,
+            details={"required_org_units": required_org_units}
+        )
+
+
+class NoMatchingOrgUnitError(AuthError):
+    """Raised when user is not a member of any allowed organizational units"""
+
+    def __init__(self, allowed_org_units: list):
+        super().__init__(
+            error_code="AUTH_010",
+            message="User is not a member of any allowed organizational units",
+            status_code=status.HTTP_403_FORBIDDEN,
+            details={"allowed_org_units": allowed_org_units}
+        )
+
+
 class ProxyError(HTTPException):
     """Base proxy error"""
 
