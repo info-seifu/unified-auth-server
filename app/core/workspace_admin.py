@@ -1,40 +1,99 @@
-"""Google Workspace Admin SDK client for groups and organizational units"""
+"""Google Workspace Admin SDK client for groups and organizational units
+
+This module uses a service account with domain-wide delegation to access
+Admin SDK APIs, allowing any user's group and org unit information to be
+retrieved regardless of the user's admin privileges.
+"""
 
 from typing import List, Optional
 import logging
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 
 logger = logging.getLogger(__name__)
+
+# Required scopes for Admin SDK
+SCOPES = [
+    'https://www.googleapis.com/auth/admin.directory.group.readonly',
+    'https://www.googleapis.com/auth/admin.directory.user.readonly',
+]
 
 
 class WorkspaceAdminClient:
     """
-    Google Workspace Admin SDK client
+    Google Workspace Admin SDK client using service account
 
-    Note: This client works in Cloud Run environment using OAuth tokens
-    obtained from user authentication flow.
+    This client uses a service account with domain-wide delegation to access
+    user group memberships and organizational unit information. This allows
+    the auth server to retrieve this information for any user, regardless of
+    their admin privileges.
+
+    Requirements:
+    - Service account with domain-wide delegation enabled
+    - Service account JSON key file
+    - Admin email for impersonation
     """
 
     def __init__(self):
         """Initialize Workspace Admin client"""
-        self.service = None
+        self._service = None
+        self._credentials = None
+        self._initialized = False
 
-    def _build_service(self, access_token: str):
+    def initialize(self, service_account_file: str, admin_email: str) -> bool:
         """
-        Build Admin SDK service with OAuth access token
+        Initialize the client with service account credentials
 
         Args:
-            access_token: OAuth2 access token from user authentication
+            service_account_file: Path to service account JSON key file
+            admin_email: Admin email for domain-wide delegation impersonation
 
         Returns:
-            Admin SDK service instance
+            True if initialization successful, False otherwise
         """
-        credentials = Credentials(token=access_token)
-        return build('admin', 'directory_v1', credentials=credentials, cache_discovery=False)
+        try:
+            # Create credentials from service account file
+            self._credentials = service_account.Credentials.from_service_account_file(
+                service_account_file,
+                scopes=SCOPES
+            )
 
-    async def get_user_groups(self, access_token: str, user_email: str) -> List[str]:
+            # Delegate credentials to impersonate admin user
+            self._credentials = self._credentials.with_subject(admin_email)
+
+            # Build the Admin SDK service
+            self._service = build(
+                'admin',
+                'directory_v1',
+                credentials=self._credentials,
+                cache_discovery=False
+            )
+
+            self._initialized = True
+            logger.info(f"Workspace Admin client initialized with service account, impersonating {admin_email}")
+            return True
+
+        except FileNotFoundError:
+            logger.error(f"Service account file not found: {service_account_file}")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to initialize Workspace Admin client: {str(e)}")
+            return False
+
+    @property
+    def is_initialized(self) -> bool:
+        """Check if client is initialized"""
+        return self._initialized
+
+    def _ensure_initialized(self) -> bool:
+        """Ensure client is initialized before making API calls"""
+        if not self._initialized:
+            logger.warning("Workspace Admin client not initialized. Group/OU validation will be skipped.")
+            return False
+        return True
+
+    async def get_user_groups(self, user_email: str) -> List[str]:
         """
         Get list of groups that a user belongs to (including nested groups)
 
@@ -42,26 +101,24 @@ class WorkspaceAdminClient:
         groups that are nested within other groups (transitive membership).
 
         Args:
-            access_token: OAuth2 access token
             user_email: User's email address
 
         Returns:
             List of group email addresses (e.g., ['group1@domain.com', 'group2@domain.com'])
             Includes both direct membership and nested group membership
-
-        Raises:
-            HttpError: If API call fails
+            Returns empty list if client not initialized or on error
         """
-        try:
-            service = self._build_service(access_token)
+        if not self._ensure_initialized():
+            return []
 
+        try:
             # Get direct groups for user
             direct_groups = set()
             page_token = None
 
             while True:
                 try:
-                    result = service.groups().list(
+                    result = self._service.groups().list(
                         userKey=user_email,
                         pageToken=page_token
                     ).execute()
@@ -76,10 +133,13 @@ class WorkspaceAdminClient:
 
                 except HttpError as e:
                     if e.resp.status == 403:
-                        logger.warning(
-                            f"Insufficient permissions to list groups for {user_email}. "
-                            "User may not have admin privileges."
+                        logger.error(
+                            f"Permission denied when listing groups for {user_email}. "
+                            "Check service account domain-wide delegation settings."
                         )
+                        return []
+                    elif e.resp.status == 404:
+                        logger.warning(f"User {user_email} not found in directory")
                         return []
                     raise
 
@@ -98,7 +158,7 @@ class WorkspaceAdminClient:
 
                 # Get groups that contain this group as a member
                 try:
-                    parent_result = service.groups().list(
+                    parent_result = self._service.groups().list(
                         userKey=current_group,
                         pageToken=None
                     ).execute()
@@ -123,45 +183,45 @@ class WorkspaceAdminClient:
 
         except Exception as e:
             logger.error(f"Failed to get groups for {user_email}: {str(e)}")
-            raise
+            return []
 
-    async def get_user_org_unit(self, access_token: str, user_email: str) -> Optional[str]:
+    async def get_user_org_unit(self, user_email: str) -> Optional[str]:
         """
         Get the organizational unit path of a user
 
         Args:
-            access_token: OAuth2 access token
             user_email: User's email address
 
         Returns:
             Organizational unit path (e.g., '/教職員/専任教員') or None if not found
-
-        Raises:
-            HttpError: If API call fails
         """
+        if not self._ensure_initialized():
+            return None
+
         try:
-            service = self._build_service(access_token)
+            # Get user information
+            user = self._service.users().get(userKey=user_email).execute()
+            org_unit_path = user.get('orgUnitPath', '/')
 
-            try:
-                # Get user information
-                user = service.users().get(userKey=user_email).execute()
-                org_unit_path = user.get('orgUnitPath', '/')
+            logger.info(f"User {user_email} belongs to org unit: {org_unit_path}")
+            return org_unit_path
 
-                logger.info(f"User {user_email} belongs to org unit: {org_unit_path}")
-                return org_unit_path
-
-            except HttpError as e:
-                if e.resp.status == 403:
-                    logger.warning(
-                        f"Insufficient permissions to get org unit for {user_email}. "
-                        "User may not have admin privileges."
-                    )
-                    return None
-                raise
+        except HttpError as e:
+            if e.resp.status == 403:
+                logger.error(
+                    f"Permission denied when getting org unit for {user_email}. "
+                    "Check service account domain-wide delegation settings."
+                )
+                return None
+            elif e.resp.status == 404:
+                logger.warning(f"User {user_email} not found in directory")
+                return None
+            logger.error(f"HTTP error getting org unit for {user_email}: {str(e)}")
+            return None
 
         except Exception as e:
             logger.error(f"Failed to get org unit for {user_email}: {str(e)}")
-            raise
+            return None
 
     def check_org_unit_hierarchy(self, user_org_unit: str, allowed_org_unit: str) -> bool:
         """
@@ -197,3 +257,28 @@ class WorkspaceAdminClient:
 
 # Singleton instance
 workspace_admin_client = WorkspaceAdminClient()
+
+
+def initialize_workspace_admin_client() -> bool:
+    """
+    Initialize the workspace admin client with settings from config
+
+    This should be called during application startup.
+
+    Returns:
+        True if initialization successful, False otherwise
+    """
+    from app.config import settings
+
+    if not settings.workspace_service_account_file:
+        logger.info("Workspace service account file not configured. Group/OU validation will be disabled.")
+        return False
+
+    if not settings.workspace_admin_email:
+        logger.warning("Workspace admin email not configured. Group/OU validation will be disabled.")
+        return False
+
+    return workspace_admin_client.initialize(
+        settings.workspace_service_account_file,
+        settings.workspace_admin_email
+    )

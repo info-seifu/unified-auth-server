@@ -99,12 +99,13 @@ async def callback(
         # Get project configuration
         project_config = await project_config_manager.get_project_config(project_id)
 
-        # Handle OAuth callback and get user info + access token
-        user_info, access_token = await google_oauth_handler.handle_callback(
+        # Handle OAuth callback and get user info
+        user_info, _ = await google_oauth_handler.handle_callback(
             request, code, state, project_id
         )
 
         # グループと組織部門の情報を取得（設定されている場合のみ）
+        # サービスアカウントを使用するため、ユーザーのaccess_tokenは不要
         user_groups = None
         user_org_unit = None
 
@@ -114,28 +115,29 @@ async def callback(
             project_config.get('required_org_units') or
             project_config.get('allowed_org_units')):
 
-            if access_token:
+            # サービスアカウントが初期化されているか確認
+            if workspace_admin_client.is_initialized:
                 try:
-                    # グループ情報の取得
+                    # グループ情報の取得（サービスアカウント使用）
                     if project_config.get('required_groups') or project_config.get('allowed_groups'):
                         user_groups = await workspace_admin_client.get_user_groups(
-                            access_token, user_info['email']
+                            user_info['email']
                         )
                         logger.info(f"Retrieved {len(user_groups)} groups for {user_info['email']}")
 
-                    # 組織部門情報の取得
+                    # 組織部門情報の取得（サービスアカウント使用）
                     if project_config.get('required_org_units') or project_config.get('allowed_org_units'):
                         user_org_unit = await workspace_admin_client.get_user_org_unit(
-                            access_token, user_info['email']
+                            user_info['email']
                         )
                         logger.info(f"Retrieved org unit '{user_org_unit}' for {user_info['email']}")
 
                 except Exception as e:
                     logger.warning(f"Failed to retrieve workspace info: {str(e)}")
                     # グループ・OU情報の取得に失敗した場合でも、検証は続行
-                    # （権限不足の場合は空リスト/Noneとして扱われる）
+                    # （空リスト/Noneとして扱われる）
             else:
-                logger.warning("Access token not available for workspace API calls")
+                logger.warning("Workspace Admin client not initialized. Group/OU validation will be skipped.")
 
         # Validate user access with groups and org unit
         try:

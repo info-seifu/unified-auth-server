@@ -59,6 +59,13 @@ async def startup_event():
     else:
         logger.info("Using Firestore for project configurations")
 
+    # Initialize Workspace Admin client for group/OU validation
+    from app.core.workspace_admin import initialize_workspace_admin_client
+    if initialize_workspace_admin_client():
+        logger.info("Workspace Admin client initialized successfully")
+    else:
+        logger.info("Workspace Admin client not configured (group/OU validation disabled)")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():

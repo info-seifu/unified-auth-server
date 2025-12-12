@@ -25,9 +25,7 @@ class GoogleOAuthHandler:
             client_secret=settings.google_client_secret,
             server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
             client_kwargs={
-                'scope': 'openid email profile '
-                         'https://www.googleapis.com/auth/admin.directory.group.readonly '
-                         'https://www.googleapis.com/auth/admin.directory.user.readonly',
+                'scope': 'openid email profile',
                 'prompt': 'select_account',  # Always show account selector
             }
         )
