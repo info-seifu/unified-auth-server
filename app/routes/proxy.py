@@ -150,7 +150,9 @@ async def proxy_request(
         )
 
     # Get API proxy credentials for the user
-    credentials = secret_manager_client.get_api_proxy_credentials(email, project_id)
+    # 注意: Secret Managerからの取得は非同期処理（awaitが必須）
+    # 開発環境では環境変数から、本番環境ではSecret Managerから取得
+    credentials = await secret_manager_client.get_api_proxy_credentials_async(email, project_id)
 
     if not credentials:
         logger.error(f"No API proxy credentials found for {email}")
@@ -180,50 +182,43 @@ async def proxy_request(
     timestamp = hmac_signer.get_current_timestamp()
 
     # Determine the full API proxy URL
-    # The endpoint should be in format: /api/openai/images/generate
-    # We need to construct: {API_PROXY_SERVER_URL}/v1/chat/{product_id}
-    # Or use the endpoint as-is if it's a full path
-
+    # DESIGN.md の標準フォーマット: POST {API_PROXY_SERVER_URL}/v1/chat/{product_id}
     api_proxy_base_url = settings.api_proxy_server_url.rstrip('/')
 
-    # Build the full URL
-    # According to DESIGN.md, the format should be:
-    # POST https://api-key-server.run.app/v1/chat/{product_id}
-    if proxy_req.endpoint.startswith('/'):
-        # Use the endpoint path directly
-        full_url = f"{api_proxy_base_url}{proxy_req.endpoint}"
-    else:
-        # Assume it's relative to /v1/chat/
-        full_url = f"{api_proxy_base_url}/v1/chat/{product_id}"
-
-    # For some endpoints, we might need to use the product_id in the path
-    # Check if the endpoint should include product_id
+    # URL構築ロジックを簡素化
+    # 1. プレースホルダー {product_id} を置換
+    # 2. 絶対パス (/) で始まる場合はそのまま使用
+    # 3. それ以外は標準パス /v1/chat/{product_id} を使用
     if "{product_id}" in proxy_req.endpoint:
-        endpoint_path = proxy_req.endpoint.replace("{product_id}", product_id)
-        full_url = f"{api_proxy_base_url}{endpoint_path}"
-    elif not proxy_req.endpoint.startswith('/v1/'):
-        # If endpoint doesn't start with /v1/, add the standard path
-        full_url = f"{api_proxy_base_url}/v1/chat/{product_id}"
+        request_path = proxy_req.endpoint.replace("{product_id}", product_id)
+    elif proxy_req.endpoint.startswith('/'):
+        request_path = proxy_req.endpoint
+    else:
+        # デフォルト: 標準の chat エンドポイント
+        request_path = f"/v1/chat/{product_id}"
 
-    # Create signed headers
+    # Full URL construction
+    full_url = f"{api_proxy_base_url}{request_path}"
+
+    # Create signed headers (URLと同じパスを使用してHMAC署名を生成)
     headers = hmac_signer.create_signed_headers(
         client_id=client_id,
         client_secret=client_secret,
         timestamp=timestamp,
         method="POST",
-        path=f"/v1/chat/{product_id}",  # Path for signature
+        path=request_path,  # 重要: full_urlと同じパスを使用
         body=proxy_req.data
     )
 
     # Log the API call with enhanced details
-    from datetime import datetime
+    from datetime import datetime, timezone
     log_details = {
         'endpoint': proxy_req.endpoint,
         'product_id': product_id,
         'method': proxy_req.method.upper(),
         'request_size': len(str(proxy_req.data)) if proxy_req.data else 0,
         'has_headers': bool(proxy_req.headers),
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
 
     await firestore_manager.log_audit_event(
@@ -249,9 +244,13 @@ async def proxy_request(
                 logger.error(
                     f"API proxy error: {response.status_code} - {response.text}"
                 )
-                raise APIProxyFailedError(
-                    f"API proxy returned {response.status_code}: {response.text[:200]}"
-                )
+                # セキュリティ: 本番環境では詳細なエラーメッセージを隠す
+                from app.config import settings
+                if settings.is_development:
+                    error_detail = f"API proxy returned {response.status_code}: {response.text[:200]}"
+                else:
+                    error_detail = f"API proxy returned status {response.status_code}"
+                raise APIProxyFailedError(error_detail)
 
             # Return the response from API proxy
             logger.info(f"API proxy request successful for {email}")

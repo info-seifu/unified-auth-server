@@ -16,6 +16,24 @@ from app.core.errors import (
 
 logger = logging.getLogger(__name__)
 
+# 基本的なメールアドレス形式の正規表現
+EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+
+
+def is_valid_email(email: str) -> bool:
+    """
+    Validate basic email format
+
+    Args:
+        email: Email address to validate
+
+    Returns:
+        True if email format is valid
+    """
+    if not email or not isinstance(email, str):
+        return False
+    return EMAIL_REGEX.match(email) is not None
+
 
 def extract_domain(email: str) -> str:
     """
@@ -25,9 +43,10 @@ def extract_domain(email: str) -> str:
         email: Email address
 
     Returns:
-        Domain part of the email
+        Domain part of the email (empty string if invalid)
     """
-    if '@' not in email:
+    if not is_valid_email(email):
+        logger.warning(f"Invalid email format: {email}")
         return ""
     return email.split('@')[1].lower()
 
@@ -36,10 +55,12 @@ def is_student_email(email: str) -> bool:
     """
     Check if email belongs to a student account
 
-    Student emails typically follow patterns like:
-    - 8-digit number@domain (e.g., 12345678@i-seifu.jp)
-    - student.name@domain
-    - s12345@domain
+    情政府高校の学生メールパターン:
+    - 7桁の学籍番号（数字のみ）@ドメイン（例: 1234567@i-seifu.jp）
+
+    教職員メールパターン:
+    - ローマ字を含むアカウント名（例: tanaka.taro@i-seifu.jp, yamada@i-seifu.jp）
+    - 数字のみのアカウントは学生の学籍番号を意味するため、教職員には存在しない
 
     Args:
         email: Email address to check
@@ -47,24 +68,15 @@ def is_student_email(email: str) -> bool:
     Returns:
         True if email appears to be a student account
     """
-    local_part = email.split('@')[0] if '@' in email else email
+    if not is_valid_email(email):
+        return False
 
-    # Check for 8-digit student ID pattern
-    if re.match(r'^\d{8}$', local_part):
-        logger.debug(f"Email {email} identified as student (8-digit ID)")
+    local_part = email.split('@')[0]
+
+    # 7桁の学籍番号パターン（情政府高校固有）
+    if re.match(r'^\d{7}$', local_part):
+        logger.debug(f"Email {email} identified as student (7-digit student ID)")
         return True
-
-    # Check for common student prefixes
-    student_patterns = [
-        r'^s\d+',           # s12345
-        r'^student\.',      # student.name
-        r'^\d{6,}',         # 6+ digit numbers
-    ]
-
-    for pattern in student_patterns:
-        if re.match(pattern, local_part.lower()):
-            logger.debug(f"Email {email} identified as student (pattern: {pattern})")
-            return True
 
     return False
 
@@ -75,6 +87,9 @@ def validate_domain(
 ) -> Tuple[bool, Optional[str]]:
     """
     Validate email domain against allowed domains
+
+    セキュリティ: サブドメインは許可しない（完全一致のみ）
+    例: i-seifu.jp は許可、sub.i-seifu.jp は拒否
 
     Args:
         email: Email address to validate
@@ -91,13 +106,9 @@ def validate_domain(
     # Convert to lowercase for comparison
     allowed_domains_lower = [d.lower() for d in allowed_domains]
 
+    # 完全一致のみチェック（サブドメイン不許可）
     if domain in allowed_domains_lower:
         return True, None
-
-    # Check for subdomain matches (e.g., sub.i-seifu.jp matches i-seifu.jp)
-    for allowed_domain in allowed_domains_lower:
-        if domain.endswith('.' + allowed_domain):
-            return True, None
 
     return False, f"Domain '{domain}' is not in allowed domains: {', '.join(allowed_domains)}"
 
@@ -338,6 +349,8 @@ def validate_redirect_uri(
     """
     Validate redirect URI against allowed URIs
 
+    セキュリティ: Open Redirect攻撃を防ぐため、スキーム・ホスト・ポートを厳密に検証
+
     Args:
         redirect_uri: URI to validate
         allowed_uris: List of allowed URIs
@@ -345,18 +358,57 @@ def validate_redirect_uri(
     Returns:
         True if URI is allowed
     """
-    # Normalize URIs for comparison
-    redirect_uri = redirect_uri.lower().rstrip('/')
+    from urllib.parse import urlparse
 
-    for allowed_uri in allowed_uris:
-        allowed_uri = allowed_uri.lower().rstrip('/')
+    try:
+        parsed_redirect = urlparse(redirect_uri)
 
-        # Exact match
-        if redirect_uri == allowed_uri:
-            return True
+        # スキームとホストが必須
+        if not parsed_redirect.scheme or not parsed_redirect.netloc:
+            logger.warning(f"Invalid redirect URI format: {redirect_uri}")
+            return False
 
-        # Allow subdirectory matches
-        if redirect_uri.startswith(allowed_uri + '/'):
-            return True
+        # 正規化: スキーム://ホスト:ポート
+        redirect_base = f"{parsed_redirect.scheme.lower()}://{parsed_redirect.netloc.lower()}"
+        redirect_path = parsed_redirect.path.rstrip('/')
 
-    return False
+        for allowed_uri in allowed_uris:
+            try:
+                parsed_allowed = urlparse(allowed_uri)
+
+                if not parsed_allowed.scheme or not parsed_allowed.netloc:
+                    logger.warning(f"Invalid allowed URI format: {allowed_uri}")
+                    continue
+
+                allowed_base = f"{parsed_allowed.scheme.lower()}://{parsed_allowed.netloc.lower()}"
+                allowed_path = parsed_allowed.path.rstrip('/')
+
+                # スキーム・ホスト・ポートが一致
+                if redirect_base != allowed_base:
+                    continue
+
+                # パスの検証（完全一致 または サブディレクトリ）
+                if redirect_path == allowed_path:
+                    logger.debug(f"Redirect URI matched (exact): {redirect_uri}")
+                    return True
+
+                # サブディレクトリマッチ（許可URIのパス配下）
+                if allowed_path and redirect_path.startswith(allowed_path + '/'):
+                    logger.debug(f"Redirect URI matched (subdirectory): {redirect_uri}")
+                    return True
+
+                # 許可URIがルートパス（/）の場合、全パスを許可
+                if not allowed_path or allowed_path == '/':
+                    logger.debug(f"Redirect URI matched (root path): {redirect_uri}")
+                    return True
+
+            except Exception as e:
+                logger.error(f"Error parsing allowed URI '{allowed_uri}': {str(e)}")
+                continue
+
+        logger.warning(f"Redirect URI not in allowed list: {redirect_uri}")
+        return False
+
+    except Exception as e:
+        logger.error(f"Error validating redirect URI '{redirect_uri}': {str(e)}")
+        return False

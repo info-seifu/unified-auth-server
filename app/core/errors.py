@@ -32,11 +32,18 @@ class InvalidDomainError(AuthError):
     """Raised when user's email domain is not allowed"""
 
     def __init__(self, domain: str, allowed_domains: list):
+        from app.config import settings
+
+        # セキュリティ: 本番環境では許可ドメインリストを露出しない
+        details = {"domain": domain}
+        if settings.is_development:
+            details["allowed_domains"] = allowed_domains
+
         super().__init__(
             error_code="AUTH_001",
             message=f"Domain '{domain}' is not allowed",
             status_code=status.HTTP_403_FORBIDDEN,
-            details={"allowed_domains": allowed_domains}
+            details=details
         )
 
 
@@ -102,11 +109,18 @@ class GroupMembershipRequiredError(AuthError):
     """Raised when user is not a member of required groups"""
 
     def __init__(self, required_groups: list):
+        from app.config import settings
+
+        # セキュリティ: 本番環境では必須グループリストを露出しない
+        details = {}
+        if settings.is_development:
+            details["required_groups"] = required_groups
+
         super().__init__(
             error_code="AUTH_007",
             message="User is not a member of required groups",
             status_code=status.HTTP_403_FORBIDDEN,
-            details={"required_groups": required_groups}
+            details=details
         )
 
 
@@ -114,11 +128,18 @@ class NoMatchingGroupError(AuthError):
     """Raised when user is not a member of any allowed groups"""
 
     def __init__(self, allowed_groups: list):
+        from app.config import settings
+
+        # セキュリティ: 本番環境では許可グループリストを露出しない
+        details = {}
+        if settings.is_development:
+            details["allowed_groups"] = allowed_groups
+
         super().__init__(
             error_code="AUTH_008",
             message="User is not a member of any allowed groups",
             status_code=status.HTTP_403_FORBIDDEN,
-            details={"allowed_groups": allowed_groups}
+            details=details
         )
 
 
@@ -126,11 +147,18 @@ class OrgUnitMembershipRequiredError(AuthError):
     """Raised when user is not a member of required organizational units"""
 
     def __init__(self, required_org_units: list):
+        from app.config import settings
+
+        # セキュリティ: 本番環境では必須組織部門リストを露出しない
+        details = {}
+        if settings.is_development:
+            details["required_org_units"] = required_org_units
+
         super().__init__(
             error_code="AUTH_009",
             message="User is not a member of required organizational units",
             status_code=status.HTTP_403_FORBIDDEN,
-            details={"required_org_units": required_org_units}
+            details=details
         )
 
 
@@ -138,11 +166,18 @@ class NoMatchingOrgUnitError(AuthError):
     """Raised when user is not a member of any allowed organizational units"""
 
     def __init__(self, allowed_org_units: list):
+        from app.config import settings
+
+        # セキュリティ: 本番環境では許可組織部門リストを露出しない
+        details = {}
+        if settings.is_development:
+            details["allowed_org_units"] = allowed_org_units
+
         super().__init__(
             error_code="AUTH_010",
             message="User is not a member of any allowed organizational units",
             status_code=status.HTTP_403_FORBIDDEN,
-            details={"allowed_org_units": allowed_org_units}
+            details=details
         )
 
 

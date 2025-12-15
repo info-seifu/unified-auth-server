@@ -2,7 +2,7 @@
 
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 
 from google.cloud import firestore
@@ -91,7 +91,14 @@ class FirestoreManager:
             logger.debug(f"Logged audit event: {event_type} for {user_email}")
 
         except Exception as e:
-            logger.error(f"Failed to log audit event: {str(e)}")
+            logger.error(f"Failed to log audit event: {str(e)}", exc_info=True)
+
+            # Critical監査ログの失敗は警告レベルでも記録
+            if event_type in ['login_failed', 'admin_action', 'unauthorized_access']:
+                logger.warning(
+                    f"CRITICAL: Failed to log important audit event: "
+                    f"event_type={event_type}, user={user_email}, project={project_id}"
+                )
 
     async def get_user_settings(self, email: str) -> Optional[Dict[str, Any]]:
         """
@@ -209,7 +216,7 @@ class FirestoreManager:
             return []
 
         try:
-            start_date = datetime.utcnow() - timedelta(days=days)
+            start_date = datetime.now(timezone.utc) - timedelta(days=days)
             query = self.client.collection('audit_logs') \
                 .where('user_email', '==', user_email) \
                 .where('event_type', 'in', ['login_success', 'login_failed']) \
@@ -253,7 +260,7 @@ class FirestoreManager:
             }
 
         try:
-            start_date = datetime.utcnow() - timedelta(days=days)
+            start_date = datetime.now(timezone.utc) - timedelta(days=days)
             base_query = self.client.collection('audit_logs').where('timestamp', '>=', start_date)
 
             if project_id:
@@ -315,7 +322,7 @@ class FirestoreManager:
             return 0
 
         try:
-            cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
             old_logs = self.client.collection('audit_logs').where('timestamp', '<', cutoff_date)
 
             deleted_count = 0
