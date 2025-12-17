@@ -245,7 +245,7 @@ async def proxy_request(
                     f"API proxy error: {response.status_code} - {response.text}"
                 )
                 # セキュリティ: 本番環境では詳細なエラーメッセージを隠す
-                from app.config import settings
+                # Note: settings はファイル先頭でインポート済み (Line 9)
                 if settings.is_development:
                     error_detail = f"API proxy returned {response.status_code}: {response.text[:200]}"
                 else:
