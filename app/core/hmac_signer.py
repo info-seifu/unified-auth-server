@@ -42,7 +42,8 @@ class HMACSignatureGenerator:
 
         # Create signature string
         # Format: timestamp\nmethod\npath\nbody_hash
-        signature_string = f"{timestamp}\n{method}\n{path}\n{body_hash}"
+        # Note: method must be uppercase to match API proxy server verification logic
+        signature_string = f"{timestamp}\n{method.upper()}\n{path}\n{body_hash}"
 
         # Generate HMAC signature
         signature = hmac.new(
