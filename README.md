@@ -91,6 +91,72 @@ python run_dev.py
 
 サーバーは http://localhost:8000 で起動します。
 
+## 本番環境へのデプロイ
+
+### Cloud Runへのデプロイ（推奨）
+
+#### 自動デプロイスクリプトを使用
+
+```bash
+# 対話式デプロイ
+./deploy.sh
+
+# 確認なしで即座にデプロイ
+./deploy.sh --yes
+```
+
+デプロイスクリプトは以下を自動実行します：
+1. `.env.production` から環境変数を読み込み
+2. Dockerイメージのビルド
+3. Artifact Registryへのプッシュ
+4. Cloud Runへのデプロイ
+5. ヘルスチェックの実行
+
+#### 手動デプロイ
+
+```bash
+# 1. Dockerイメージのビルド
+docker build -t asia-northeast1-docker.pkg.dev/interview-api-472500/unified-auth-server/unified-auth-server:latest .
+
+# 2. Artifact Registryへプッシュ
+docker push asia-northeast1-docker.pkg.dev/interview-api-472500/unified-auth-server/unified-auth-server:latest
+
+# 3. Cloud Runへデプロイ
+gcloud run deploy unified-auth-server \
+  --image asia-northeast1-docker.pkg.dev/interview-api-472500/unified-auth-server/unified-auth-server:latest \
+  --region asia-northeast1 \
+  --env-vars-file .env.production \
+  --allow-unauthenticated \
+  --min-instances 0 \
+  --max-instances 3
+```
+
+### デプロイ後の確認
+
+```bash
+# ヘルスチェック
+curl https://unified-auth-server-856773980753.asia-northeast1.run.app/health
+
+# ログ確認
+gcloud run services logs read unified-auth-server --region asia-northeast1 --limit 50
+
+# サービス詳細
+gcloud run services describe unified-auth-server --region asia-northeast1
+```
+
+### 環境変数の管理
+
+本番環境では `.env.production` ファイルで環境変数を管理します：
+
+```env
+ENVIRONMENT=production
+SECRET_MANAGER_ENABLED=true
+GCP_PROJECT_ID=interview-api-472500
+# その他の設定...
+```
+
+**重要**: 機密情報（OAuth認証情報、JWT秘密鍵）はSecret Managerで管理され、`.env.production`には含まれません。
+
 ## 使い方
 
 ### 1. ログインテスト
