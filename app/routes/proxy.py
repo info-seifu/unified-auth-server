@@ -2,6 +2,7 @@
 
 from typing import Optional, Dict, Any
 import logging
+import json
 
 from fastapi import APIRouter, Request, HTTPException, Depends, Header
 import httpx
@@ -232,11 +233,14 @@ async def proxy_request(
 
     # Forward request to API proxy server
     try:
+        # HMAC署名と同じJSON形式でbodyを事前に生成
+        body_json = json.dumps(proxy_req.data, sort_keys=True, separators=(',', ':'))
+
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 full_url,
                 headers=headers,
-                json=proxy_req.data
+                content=body_json  # jsonパラメータではなくcontentとして送信
             )
 
             # Check response status
