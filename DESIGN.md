@@ -658,6 +658,37 @@ PROJECT_CONFIGS = {
 - APIプロキシサーバーは、この `product_id` に基づいて適切なOpenAI/Anthropic/Gemini APIキーを選択します
 - プロジェクトごとに異なる `product_id` を設定することで、APIキーの使用を分離できます
 
+### 🔄 対応エンドポイント
+
+APIプロキシ中継は、以下のエンドポイントパターンに対応しています：
+
+| エンドポイント | 用途 | 例 |
+|---------------|------|-----|
+| `/v1/chat/{product_id}` | チャットAPI（OpenAI/Anthropic/Gemini） | `/v1/chat/product-SlideVideo` |
+| `/v1/images/generations/{product_id}` | 画像生成API（Gemini Imagen） | `/v1/images/generations/product-SlideVideo` |
+| `/v1/completion/{product_id}` | テキスト補完API | `/v1/completion/product-SlideVideo` |
+
+#### **プロバイダ別エンドポイントの違い**
+
+| 機能 | OpenAI | Gemini |
+|------|--------|--------|
+| チャット | `/v1/chat/{product_id}` | `/v1/chat/{product_id}` |
+| 画像生成 | `/v1/chat/{product_id}`（同一） | `/v1/images/generations/{product_id}`（別） |
+
+**備考:** OpenAIのGPT-4oなどのマルチモーダルモデルはチャットAPIで画像生成も対応していますが、Geminiの画像生成（Imagen）は専用エンドポイントを使用します。
+
+#### **HMAC署名のパス計算**
+
+署名生成時は、`{product_id}`プレースホルダーを実際の値に置換したパスを使用します：
+
+```python
+# 例: endpoint = "/v1/images/generations/{product_id}"
+#     product_id = "product-SlideVideo"
+# → signature_path = "/v1/images/generations/product-SlideVideo"
+```
+
+これにより、クライアント側とサーバー側で署名が一致します。
+
 ---
 
 ### 🔐 グループベース認証について

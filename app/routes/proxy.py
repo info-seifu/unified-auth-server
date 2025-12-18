@@ -204,6 +204,13 @@ async def proxy_request(
     elif not proxy_req.endpoint.startswith('/v1/'):
         # If endpoint doesn't start with /v1/, add the standard path
         full_url = f"{api_proxy_base_url}/v1/chat/{product_id}"
+        endpoint_path = f"/v1/chat/{product_id}"
+    else:
+        endpoint_path = proxy_req.endpoint
+
+    # HMAC署名に使用するパスを決定
+    # {product_id}が含まれている場合は置換後のパスを使用
+    signature_path = endpoint_path if '{product_id}' not in endpoint_path else endpoint_path.replace("{product_id}", product_id)
 
     # Create signed headers
     headers = hmac_signer.create_signed_headers(
@@ -211,7 +218,7 @@ async def proxy_request(
         client_secret=client_secret,
         timestamp=timestamp,
         method="POST",
-        path=f"/v1/chat/{product_id}",  # Path for signature
+        path=signature_path,  # 実際のエンドポイントパスを使用
         body=proxy_req.data
     )
 
