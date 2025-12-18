@@ -483,7 +483,85 @@ if settings.debug:
 
 ---
 
-## 12. このファイルの運用ルール
+## 12. Cloud Runデプロイ時の注意事項
+
+### 環境変数・シークレットの扱い
+
+デプロイ時に環境変数やシークレット設定を消さないため、以下のルールを厳守すること：
+
+| オプション | 動作 | 使用可否 |
+|-----------|------|---------|
+| `--set-env-vars` | 既存をすべて上書き | ❌ **使用禁止** |
+| `--set-secrets` | 既存をすべて上書き | ❌ **使用禁止** |
+| `--update-env-vars` | 追加・更新のみ | ✅ 推奨 |
+| `--update-secrets` | 追加・更新のみ | ✅ 推奨 |
+| 指定なし | 既存設定を保持 | ✅ OK |
+
+### 標準デプロイコマンド
+
+```bash
+# コードのみ更新（環境変数・シークレット設定は保持される）
+gcloud run deploy unified-auth-server \
+  --project=interview-api-472500 \
+  --region=asia-northeast1 \
+  --source=.
+```
+
+### 環境変数を追加・更新する場合
+
+```bash
+# 既存設定を保持しつつ追加・更新
+gcloud run deploy unified-auth-server \
+  --project=interview-api-472500 \
+  --region=asia-northeast1 \
+  --source=. \
+  --update-env-vars=NEW_VAR=value \
+  --update-secrets=NEW_SECRET=secret-name:latest
+```
+
+### 現在の設定を確認
+
+```bash
+gcloud run services describe unified-auth-server \
+  --project=interview-api-472500 \
+  --region=asia-northeast1 \
+  --format="yaml(spec.template.spec.containers[0])"
+```
+
+### シークレット参照の設定（初回のみ）
+
+以下のシークレットがCloud Runにマウントされている必要があります：
+
+| 環境変数 | Secret Manager名 |
+|---------|-----------------|
+| GOOGLE_CLIENT_ID | google-client-id |
+| GOOGLE_CLIENT_SECRET | google-client-secret |
+| JWT_SECRET_KEY | jwt-secret-key |
+
+設定コマンド：
+
+```bash
+gcloud run services update unified-auth-server \
+  --project=interview-api-472500 \
+  --region=asia-northeast1 \
+  --update-secrets=GOOGLE_CLIENT_ID=google-client-id:latest \
+  --update-secrets=GOOGLE_CLIENT_SECRET=google-client-secret:latest \
+  --update-secrets=JWT_SECRET_KEY=jwt-secret-key:latest
+```
+
+### デプロイ後の動作確認
+
+```bash
+# ヘルスチェック
+curl https://unified-auth-server-856773980753.asia-northeast1.run.app/health
+
+# 期待されるレスポンス
+# {"status":"healthy","environment":"production","debug":false}
+```
+
+---
+
+## 13. このファイルの運用ルール
 
 - 新エンドポイント追加時: セクション3, 4を更新
 - エラーパターン発見時: セクション11.1に追記
