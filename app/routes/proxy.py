@@ -150,21 +150,40 @@ async def proxy_request(
             }
         )
 
-    # Get API proxy credentials for the user
-    # 注意: Secret Managerからの取得は非同期処理（awaitが必須）
-    # 開発環境では環境変数から、本番環境ではSecret Managerから取得
-    credentials = await secret_manager_client.get_api_proxy_credentials_async(email, project_id)
+    # Use Unified Auth Server's own credentials for API Proxy authentication
+    # API Proxy ServerはUnified Auth Serverを認証するため、サーバー自体のクレデンシャルを使用
+    client_id = settings.api_proxy_client_id
+    client_secret = settings.api_proxy_hmac_secret
 
-    if not credentials:
-        logger.error(f"No API proxy credentials found for {email}")
-        raise ClientSecretNotFoundError(email)
-
-    client_id = credentials.get("client_id")
-    client_secret = credentials.get("client_secret")
-
-    if not client_id or not client_secret:
-        logger.error(f"Invalid credentials for {email}")
-        raise ClientSecretNotFoundError(email)
+    # Check if HMAC secret is configured
+    if not client_secret:
+        # Try to get from Secret Manager if enabled
+        if settings.secret_manager_enabled:
+            # Get HMAC secret from Secret Manager
+            api_proxy_secret = await secret_manager_client.get_secret_async("api-proxy-hmac-secret")
+            if api_proxy_secret:
+                client_secret = api_proxy_secret
+                logger.info("Loaded API Proxy HMAC secret from Secret Manager")
+            else:
+                logger.error("API Proxy HMAC secret not found in Secret Manager")
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error": "PROXY_AUTH_001",
+                        "detail": "API Proxy authentication not configured",
+                        "message": "サーバー設定エラーです。管理者に連絡してください。"
+                    }
+                )
+        else:
+            logger.error("API_PROXY_HMAC_SECRET not configured")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "PROXY_AUTH_001",
+                    "detail": "API Proxy authentication not configured",
+                    "message": "サーバー設定エラーです。管理者に連絡してください。"
+                }
+            )
 
     # Get product_id from project config
     product_id = project_config.get("product_id")
@@ -236,7 +255,7 @@ async def proxy_request(
         # HMAC署名と同じJSON形式でbodyを事前に生成
         body_json = json.dumps(proxy_req.data, sort_keys=True, separators=(',', ':'))
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=settings.proxy_timeout_seconds) as client:
             response = await client.post(
                 full_url,
                 headers=headers,

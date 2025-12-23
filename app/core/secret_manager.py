@@ -151,6 +151,35 @@ class SecretManagerClient:
 
         return secret_key
 
+    async def get_secret_async(self, secret_name: str) -> Optional[str]:
+        """
+        Get a secret value from Secret Manager (async version)
+
+        Args:
+            secret_name: Name of the secret
+
+        Returns:
+            Secret value as string, or None if not found
+        """
+        if not self.enabled:
+            logger.debug(f"Secret Manager disabled, returning None for {secret_name}")
+            return None
+
+        try:
+            # Construct the full secret path
+            secret_path = f"projects/{self.project_id}/secrets/{secret_name}/versions/latest"
+
+            # Access the secret
+            response = self.client.access_secret_version(request={"name": secret_path})
+            secret_value = response.payload.data.decode('utf-8')
+
+            logger.debug(f"Successfully retrieved secret: {secret_name}")
+            return secret_value
+
+        except Exception as e:
+            logger.error(f"Failed to retrieve secret {secret_name}: {str(e)}")
+            return None
+
     async def get_api_proxy_credentials_async(
         self,
         email: str,

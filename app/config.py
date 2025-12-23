@@ -53,6 +53,22 @@ class Settings(BaseSettings):
         default="https://api-key-server.run.app",
         alias="API_PROXY_SERVER_URL"
     )
+    # API Proxy Server Authentication (Unified Auth Server's own credentials)
+    api_proxy_client_id: str = Field(
+        default="unified-auth-server",
+        alias="API_PROXY_CLIENT_ID",
+        description="Client ID for authenticating with API Proxy Server"
+    )
+    api_proxy_hmac_secret: Optional[str] = Field(
+        None,
+        alias="API_PROXY_HMAC_SECRET",
+        description="HMAC secret for authenticating with API Proxy Server"
+    )
+    proxy_timeout_seconds: int = Field(
+        default=300,
+        alias="PROXY_TIMEOUT_SECONDS",
+        description="HTTP timeout for API proxy requests (seconds)"
+    )
 
     # Google Workspace Admin SDK Configuration (Service Account)
     workspace_service_account_file: Optional[str] = Field(
