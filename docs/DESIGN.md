@@ -1067,36 +1067,135 @@ PROJECT_CONFIGS = {
 
 ### 機密情報の管理
 
-#### **Secret Manager に保存:**
-1. **Google OAuth認証情報**
-   ```
-   projects/PROJECT_ID/secrets/google-oauth-credentials
-   {
-     "client_id": "xxx.apps.googleusercontent.com",
-     "client_secret": "GOCSPX-xxx"
-   }
-   ```
+#### **Secret Manager に保存する機密情報（完全版）:**
 
-2. **JWT署名キー**
-   ```
-   projects/PROJECT_ID/secrets/jwt-secret-key
-   "ランダムな256-bit文字列"
-   ```
+| Secret名 | 形式 | 説明 | 必須 | 更新日 |
+|---------|------|------|------|--------|
+| `google-oauth-credentials` | JSON | Google OAuth認証情報 | ✅ 必須 | 初期設定 |
+| `jwt-secret-key` | 文字列 | JWT署名キー | ✅ 必須 | 初期設定 |
+| `api-proxy-hmac-secret` | 文字列 | **API Proxy ServerとのHMAC認証秘密鍵** | ✅ 必須 | **2025-12-23追加** |
+| `workspace-service-account` | JSON | Google Workspace Admin SDK サービスアカウント | ⚪ オプション | グループ/OU検証時 |
+| `slidevideo-users` | JSON | ユーザー別APIプロキシ認証情報（旧方式） | ❌ 非推奨 | 旧実装（削除予定） |
 
-3. **ユーザー別APIプロキシ認証情報**
-   ```
-   projects/PROJECT_ID/secrets/slidevideo-users
-   {
-     "yamada@i-seifu.jp": {
-       "client_id": "slidevideo-yamada",
-       "client_secret": "SECRET_YAMADA_xxx"
-     },
-     "tanaka@i-seifu.jp": {
-       "client_id": "slidevideo-tanaka",
-       "client_secret": "SECRET_TANAKA_xxx"
-     }
-   }
-   ```
+#### **1. Google OAuth認証情報**
+```json
+// Secret名: google-oauth-credentials
+{
+  "client_id": "xxx.apps.googleusercontent.com",
+  "client_secret": "GOCSPX-xxx"
+}
+```
+
+**登録コマンド:**
+```bash
+cat > oauth-creds.json <<EOF
+{
+  "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+  "client_secret": "GOCSPX-YOUR_CLIENT_SECRET"
+}
+EOF
+
+gcloud secrets create google-oauth-credentials \
+  --data-file=oauth-creds.json \
+  --project=interview-api-472500
+
+rm oauth-creds.json  # セキュリティのため削除
+```
+
+#### **2. JWT署名キー**
+```
+// Secret名: jwt-secret-key
+// 形式: ランダムな256-bit文字列
+"a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6"
+```
+
+**登録コマンド:**
+```bash
+# 256-bit (32バイト) のランダムキーを生成
+JWT_SECRET=$(openssl rand -base64 32)
+echo "生成されたJWT秘密鍵: $JWT_SECRET"
+
+# Secret Managerに保存
+echo -n "$JWT_SECRET" | gcloud secrets create jwt-secret-key \
+  --data-file=- \
+  --project=interview-api-472500
+```
+
+#### **3. API Proxy HMAC秘密鍵（新規追加 - 2025-12-23）**
+```
+// Secret名: api-proxy-hmac-secret
+// 形式: 256-bit hex文字列
+"a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a1b2c3d4e5f6"
+```
+
+**用途**: Unified Auth ServerがAPI Proxy Serverに対して認証する際のHMAC署名生成に使用
+
+**登録コマンド:**
+```bash
+# 1. HMAC秘密鍵を生成（32バイト = 64文字のhex）
+HMAC_SECRET=$(openssl rand -hex 32)
+echo "生成されたHMAC秘密鍵: $HMAC_SECRET"
+
+# 2. Unified Auth Server側のSecret Managerに保存
+echo -n "$HMAC_SECRET" | gcloud secrets create api-proxy-hmac-secret \
+  --data-file=- \
+  --project=interview-api-472500 \
+  --replication-policy="automatic"
+
+# 3. サービスアカウントに権限付与
+gcloud secrets add-iam-policy-binding api-proxy-hmac-secret \
+  --member="serviceAccount:856773980753-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project=interview-api-472500
+```
+
+**重要**: この秘密鍵は、API Proxy Server側でも同じ値を `unified-auth-server-hmac-secret` として登録する必要があります。詳細は [HMAC認証の詳細設計](#-hmac認証の詳細設計api-proxy-server連携) を参照。
+
+#### **4. Google Workspace Admin SDK サービスアカウント（オプション）**
+```json
+// Secret名: workspace-service-account
+// 形式: サービスアカウントのJSON鍵
+{
+  "type": "service_account",
+  "project_id": "YOUR_PROJECT_ID",
+  "private_key_id": "...",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+  "client_email": "workspace-admin@YOUR_PROJECT.iam.gserviceaccount.com",
+  "client_id": "...",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "..."
+}
+```
+
+**用途**: Google Workspaceのグループメンバーシップや組織部門情報を取得する際に使用（グループ/OU認証を有効にする場合のみ必要）
+
+**登録コマンド:**
+```bash
+# サービスアカウントJSON鍵ファイルを使用
+gcloud secrets create workspace-service-account \
+  --data-file=service-account-key.json \
+  --project=interview-api-472500
+```
+
+#### **5. ユーザー別APIプロキシ認証情報（旧方式 - 非推奨）**
+```json
+// Secret名: slidevideo-users
+// 形式: JSON（ユーザーメールアドレスをキーとした辞書）
+{
+  "yamada@i-seifu.jp": {
+    "client_id": "slidevideo-yamada",
+    "client_secret": "SECRET_YAMADA_xxx"
+  },
+  "tanaka@i-seifu.jp": {
+    "client_id": "slidevideo-tanaka",
+    "client_secret": "SECRET_TANAKA_xxx"
+  }
+}
+```
+
+**⚠️ 注意**: この方式は旧実装で使用されていましたが、現在は **Unified Auth Server自体のクレデンシャル方式（`api-proxy-hmac-secret`）に移行** しています。新規プロジェクトでは使用しないでください。
 
 ### トークンのセキュリティ
 
