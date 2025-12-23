@@ -283,10 +283,128 @@ netstat -ano | findstr :8000
 PORT=8001 python run_dev.py
 ```
 
+## API Proxy Server連携テスト
+
+### 前提条件
+
+以下が完了していることを確認してください：
+
+1. ✅ API Proxy Serverに `unified-auth-server` クライアントが登録されている
+2. ✅ Secret Managerに `api-proxy-hmac-secret` が作成されている
+3. ✅ 両サーバーで同じHMAC秘密鍵を使用している
+
+### テスト手順
+
+#### 1. Unified Auth Serverの再デプロイ
+
+```bash
+# Cloud Runに最新版をデプロイ
+gcloud run deploy unified-auth-server \
+  --source . \
+  --region=asia-northeast1 \
+  --project=interview-api-472500 \
+  --set-env-vars="ENVIRONMENT=production,SECRET_MANAGER_ENABLED=true,FIREBASE_ENABLED=true,GCP_PROJECT_ID=interview-api-472500,ALLOWED_HOSTS=unified-auth-server-856773980753.asia-northeast1.run.app,API_PROXY_SERVER_URL=https://api-key-server-856773980753.asia-northeast1.run.app,API_PROXY_CLIENT_ID=unified-auth-server"
+
+# ヘルスチェック
+curl https://unified-auth-server-856773980753.asia-northeast1.run.app/health
+```
+
+#### 2. sogo-slide-geminiでの統合テスト
+
+```bash
+# 1. Streamlitアプリにログイン
+# ブラウザで http://localhost:8501 にアクセス
+# h.hamada@i-seifu.jp でログイン
+
+# 2. スライド生成テスト
+# - Markdownファイルをアップロード
+# - 「スライド構造を生成」ボタンをクリック
+
+# 3. 期待される結果
+# ✅ 401エラーが発生しない
+# ✅ スライド構造が正常に生成される
+# ✅ Claude APIからのレスポンスが返ってくる
+```
+
+#### 3. ログ確認
+
+```bash
+# Unified Auth Serverのログ確認
+gcloud run services logs read unified-auth-server \
+  --region=asia-northeast1 \
+  --limit=30
+
+# 期待されるログ:
+# "Loaded API Proxy HMAC secret from Secret Manager"
+# "API proxy request successful for h.hamada@i-seifu.jp"
+
+# API Proxy Serverのログ確認
+gcloud run services logs read api-key-server \
+  --region=asia-northeast1 \
+  --limit=20
+
+# 期待されるログ:
+# "HMAC authentication successful for client: unified-auth-server"
+# "POST /v1/chat/product-SlideVideo HTTP/1.1" 200
+```
+
+### トラブルシューティング
+
+#### 401 Unknown client エラー
+
+```bash
+# 原因: API Proxy Serverに unified-auth-server が登録されていない
+# 解決策: API Proxy Server側でクライアント登録を確認
+```
+
+#### 401 Signature mismatch エラー
+
+```bash
+# 原因: HMAC秘密鍵が両サーバーで一致していない
+# 確認コマンド:
+
+# Unified Auth Server側の秘密鍵確認
+gcloud secrets versions access latest \
+  --secret=api-proxy-hmac-secret \
+  --project=interview-api-472500
+
+# API Proxy Server側の秘密鍵確認
+gcloud secrets versions access latest \
+  --secret=unified-auth-server-hmac-secret \
+  --project=interview-api-472500
+
+# 両方が完全に一致することを確認
+```
+
+#### 500 PROXY_AUTH_001 エラー
+
+```bash
+# 原因: Secret Managerに api-proxy-hmac-secret が存在しない
+# 解決策: Secret Managerに秘密鍵を作成
+
+HMAC_SECRET=$(openssl rand -hex 32)
+echo -n "$HMAC_SECRET" | gcloud secrets create api-proxy-hmac-secret \
+  --data-file=- \
+  --project=interview-api-472500
+
+# サービスアカウントに権限付与
+gcloud secrets add-iam-policy-binding api-proxy-hmac-secret \
+  --member="serviceAccount:856773980753-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project=interview-api-472500
+```
+
+---
+
 ## 関連プロジェクト
 
 - **APIプロキシサーバー**: `C:\Users\濱田英樹\Documents\dev\api-key-server\api-key-server`
 - **クライアント（スライド動画生成）**: `C:\Users\濱田英樹\Documents\dev\SlideMovie\sogo-slide-local-video`
+
+## 関連ドキュメント
+
+- [設計書](docs/DESIGN.md) - システム全体の設計詳細
+- [OpenAPI仕様](auth_server_api.yaml) - API仕様書
 
 ## ライセンス
 
