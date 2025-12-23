@@ -220,6 +220,9 @@ async def proxy_request(
     # Full URL construction
     full_url = f"{api_proxy_base_url}{request_path}"
 
+    # Log proxy request start
+    logger.info(f"Proxy request: user={email}, product={product_id}, endpoint={request_path}")
+
     # Create signed headers (URLと同じパスを使用してHMAC署名を生成)
     headers = hmac_signer.create_signed_headers(
         client_id=client_id,
