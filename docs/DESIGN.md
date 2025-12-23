@@ -1350,3 +1350,365 @@ SECRET_MANAGER_ENABLED=true
 ## 📄 ライセンス
 
 （プロジェクトのライセンスを記載）
+
+---
+
+## 🔐 HMAC認証の詳細設計（API Proxy Server連携）
+
+### 概要
+
+Unified Auth ServerとAPI Proxy Server間の通信は、HMAC-SHA256署名による認証で保護されています。
+
+### 認証フロー
+
+```
+[Unified Auth Server] → [API Proxy Server] → [外部API (Anthropic/OpenAI)]
+     HMAC署名付き           署名検証           APIキー付き
+```
+
+### HMAC署名の生成アルゴリズム
+
+#### **署名生成（Unified Auth Server側）**
+
+実装場所: [app/core/hmac_signer.py](../app/core/hmac_signer.py)
+
+```python
+def generate_signature(client_secret: str, timestamp: str, method: str, path: str, body: dict) -> str:
+    """
+    HMAC-SHA256署名を生成
+
+    重要: API Proxy Serverと完全に一致する必要がある
+    """
+    # 1. リクエストボディをJSON化（重要: separators=(',', ':') でスペースなし）
+    body_json = json.dumps(body, sort_keys=True, separators=(',', ':'))
+
+    # 2. ボディのSHA256ハッシュを計算
+    body_hash = hashlib.sha256(body_json.encode('utf-8')).hexdigest()
+
+    # 3. 署名対象文字列を作成（重要: method.upper() で大文字化）
+    signature_string = f"{timestamp}\n{method.upper()}\n{path}\n{body_hash}"
+
+    # 4. HMAC-SHA256署名を計算
+    mac = hmac.new(
+        client_secret.encode('utf-8'),
+        signature_string.encode('utf-8'),
+        hashlib.sha256
+    )
+
+    return mac.hexdigest()
+```
+
+#### **署名検証（API Proxy Server側）**
+
+実装場所: `api-key-server/app/auth.py`
+
+```python
+def _calculate_hmac_signature(secret: str, timestamp: str, method: str, path: str, body: bytes) -> str:
+    """
+    HMAC-SHA256署名を計算（検証用）
+
+    Unified Auth Serverの生成ロジックと完全一致が必須
+    """
+    # 1. ボディのSHA256ハッシュを計算（受信したbytesから）
+    body_hash = hashlib.sha256(body).hexdigest()
+
+    # 2. 署名対象文字列を作成（method.upper() で大文字化）
+    message = f"{timestamp}\n{method.upper()}\n{path}\n{body_hash}"
+
+    # 3. HMAC-SHA256署名を計算
+    mac = hmac.new(secret.encode('utf-8'), message.encode('utf-8'), hashlib.sha256)
+
+    return mac.hexdigest()
+```
+
+### 重要な実装ポイント
+
+#### **1. JSONシリアライゼーションの統一**
+
+**問題**:
+- Pythonの`json.dumps()`はデフォルトで`separators=(', ', ': ')`（スペース付き）
+- `httpx.post(json=data)`も内部で`json.dumps()`を使用するため、スペース付きになる
+- 署名生成時とリクエスト送信時でJSON形式が異なると、署名が一致しない
+
+**解決策**:
+```python
+# app/routes/proxy.py
+
+# HMAC署名生成（スペースなし）
+body_json = json.dumps(proxy_req.data, sort_keys=True, separators=(',', ':'))
+signature = generate_signature(client_secret, timestamp, "POST", path, proxy_req.data)
+
+# リクエスト送信（同じJSON形式を使用）
+body_json = json.dumps(proxy_req.data, sort_keys=True, separators=(',', ':'))
+response = await client.post(
+    full_url,
+    headers=headers,
+    content=body_json  # jsonパラメータではなくcontentとして送信
+)
+```
+
+**修正履歴**:
+- コミット: `685990f` (2025-12-23)
+- 問題: HMAC署名とリクエストbodyのJSON形式不一致
+- 修正: `separators=(',', ':')`で統一、`content=body_json`で送信
+
+#### **2. HTTPメソッドの大文字化**
+
+**問題**:
+- API Proxy Serverは`method.upper()`で大文字化して署名を検証
+- Unified Auth Serverが小文字で署名を生成すると、署名が一致しない
+
+**解決策**:
+```python
+# 修正前（誤り）
+signature_string = f"{timestamp}\n{method}\n{path}\n{body_hash}"
+
+# 修正後（正しい）
+signature_string = f"{timestamp}\n{method.upper()}\n{path}\n{body_hash}"
+```
+
+**修正履歴**:
+- コミット: `95eb568` (2025-12-16)
+- 問題: HTTPメソッドが小文字のまま
+- 修正: `method.upper()`で大文字化
+
+#### **3. Unified Auth Server自体の認証**
+
+**問題**:
+- 初期実装では、ユーザーごとのクレデンシャルを使用していた
+- API Proxy ServerはUnified Auth Server自体を認証する必要がある
+
+**解決策**:
+```python
+# app/routes/proxy.py
+
+# 修正前（誤り）: ユーザーごとのクレデンシャル
+credentials = await secret_manager_client.get_api_proxy_credentials_async(email, project_id)
+client_id = credentials.get("client_id")
+client_secret = credentials.get("client_secret")
+
+# 修正後（正しい）: Unified Auth Server自体のクレデンシャル
+client_id = settings.api_proxy_client_id  # "unified-auth-server"
+client_secret = settings.api_proxy_hmac_secret  # Secret Managerから取得
+```
+
+**修正履歴**:
+- コミット: `e0aa82f` (2025-12-23)
+- 問題: 401 Unknown client エラー
+- 修正: Unified Auth Server自体のクレデンシャルを使用
+
+### 環境変数とSecret Manager設定
+
+#### **環境変数（.env.production）**
+
+```bash
+# API Proxy Server設定
+API_PROXY_SERVER_URL=https://api-key-server-856773980753.asia-northeast1.run.app
+API_PROXY_CLIENT_ID=unified-auth-server
+# API_PROXY_HMAC_SECRET は Secret Manager経由で管理（環境変数では設定しない）
+```
+
+#### **Secret Manager**
+
+| Secret名 | 説明 | 使用箇所 |
+|---------|------|---------|
+| `api-proxy-hmac-secret` | Unified Auth ServerのHMAC秘密鍵 | Unified Auth Server |
+| `unified-auth-server-hmac-secret` | 同じ値（API Proxy Server側の名前） | API Proxy Server |
+
+**重要**: 両サーバーで同じ秘密鍵を共有する必要があります。
+
+#### **Secret Managerへの登録手順**
+
+```bash
+# 1. HMAC秘密鍵を生成（32バイト）
+SECRET_VALUE=$(openssl rand -hex 32)
+echo "生成されたHMAC秘密鍵: $SECRET_VALUE"
+
+# 2. Unified Auth Server側のSecret Managerに保存
+echo -n "$SECRET_VALUE" | gcloud secrets create api-proxy-hmac-secret \
+  --data-file=- \
+  --project=interview-api-472500 \
+  --replication-policy="automatic"
+
+# 3. API Proxy Server側のSecret Managerに保存（同じ値）
+echo -n "$SECRET_VALUE" | gcloud secrets create unified-auth-server-hmac-secret \
+  --data-file=- \
+  --project=interview-api-472500 \
+  --replication-policy="automatic"
+
+# 4. サービスアカウントに権限付与
+gcloud secrets add-iam-policy-binding api-proxy-hmac-secret \
+  --member="serviceAccount:856773980753-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project=interview-api-472500
+
+gcloud secrets add-iam-policy-binding unified-auth-server-hmac-secret \
+  --member="serviceAccount:856773980753-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project=interview-api-472500
+```
+
+### API Proxy Serverとのリクエストフォーマット
+
+#### **リクエスト例**
+
+```http
+POST https://api-key-server-856773980753.asia-northeast1.run.app/v1/chat/product-SlideVideo
+Content-Type: application/json
+X-Client-ID: unified-auth-server
+X-Timestamp: 1703001234
+X-Signature: a1b2c3d4e5f6...
+
+{"model":"claude-3-sonnet","messages":[{"role":"user","content":"Hello"}]}
+```
+
+#### **ヘッダー詳細**
+
+| ヘッダー | 説明 | 例 |
+|---------|------|-----|
+| `Content-Type` | 常に `application/json` | `application/json` |
+| `X-Client-ID` | Unified Auth ServerのクライアントID | `unified-auth-server` |
+| `X-Timestamp` | Unix timestamp（秒） | `1703001234` |
+| `X-Signature` | HMAC-SHA256署名（16進数） | `a1b2c3d4e5f6...` |
+
+#### **URL構造**
+
+```
+{API_PROXY_SERVER_URL}/v1/chat/{product_id}
+```
+
+- `API_PROXY_SERVER_URL`: 環境変数で設定
+- `product_id`: プロジェクト設定の`product_id`から取得
+  - 例: `product-SlideVideo`, `product-textbook-translation`
+
+### エラーハンドリング
+
+#### **HMAC認証関連のエラー**
+
+| エラーコード | HTTPステータス | 説明 | 原因 |
+|------------|--------------|------|------|
+| `Unknown client` | 401 | クライアントIDが登録されていない | API Proxy ServerにClient IDが未登録 |
+| `Signature mismatch` | 401 | HMAC署名が一致しない | JSON形式の不一致、メソッド大文字化忘れ、秘密鍵の不一致 |
+| `Timestamp expired` | 401 | タイムスタンプが古い | リクエストが遅延、サーバー時刻のずれ |
+| `PROXY_AUTH_001` | 500 | HMAC秘密鍵が設定されていない | 環境変数またはSecret Managerに秘密鍵がない |
+
+#### **デバッグ方法**
+
+```bash
+# Unified Auth Serverのログ確認
+gcloud run services logs read unified-auth-server \
+  --region=asia-northeast1 \
+  --limit=30
+
+# API Proxy Serverのログ確認
+gcloud run services logs read api-key-server \
+  --region=asia-northeast1 \
+  --limit=30
+
+# Secret Managerの値確認
+gcloud secrets versions access latest \
+  --secret=api-proxy-hmac-secret \
+  --project=interview-api-472500
+```
+
+### トラブルシューティング
+
+#### **問題1: Signature mismatch**
+
+**原因**:
+- JSONシリアライゼーションの不一致（スペースの有無）
+- HTTPメソッドの大文字化忘れ
+- HMAC秘密鍵が両サーバーで異なる
+
+**確認手順**:
+```python
+# デバッグログを追加（本番環境では削除）
+logger.debug(f"Body JSON: {body_json}")
+logger.debug(f"Body hash: {body_hash}")
+logger.debug(f"Signature string: {signature_string}")
+logger.debug(f"Generated signature: {signature}")
+```
+
+**解決策**:
+1. `separators=(',', ':')`を使用
+2. `method.upper()`で大文字化
+3. 両サーバーで同じ秘密鍵を使用
+
+#### **問題2: Unknown client**
+
+**原因**:
+- API Proxy ServerにClient ID `unified-auth-server`が登録されていない
+
+**解決策**:
+API Proxy Server側で以下を実施:
+```python
+# app/config.py または clients.py
+REGISTERED_CLIENTS = {
+    "unified-auth-server": {
+        "name": "Unified Auth Server",
+        "hmac_secret_path": "projects/interview-api-472500/secrets/unified-auth-server-hmac-secret/versions/latest",
+        "allowed_products": ["product-SlideVideo", "product-textbook-translation"],
+        "description": "Unified authentication server for all products"
+    }
+}
+```
+
+### テスト方法
+
+#### **ローカルテスト**
+
+```python
+# tests/test_hmac_signer.py
+
+def test_hmac_signature_matches_api_proxy():
+    """HMAC署名がAPI Proxy Serverの検証ロジックと一致することを確認"""
+    client_secret = "test-secret"
+    timestamp = "1234567890"
+    method = "post"  # 小文字で渡す
+    path = "/v1/chat/product-SlideVideo"
+    body = {"model": "claude-3-sonnet", "messages": [{"role": "user", "content": "test"}]}
+
+    # Unified Auth Server側の署名生成
+    auth_signature = HMACSignatureGenerator.generate_signature(
+        client_secret=client_secret,
+        timestamp=timestamp,
+        method=method,
+        path=path,
+        body=body
+    )
+
+    # API Proxy Server側の検証ロジックを再現
+    body_json = json.dumps(body, sort_keys=True, separators=(',', ':'))
+    body_hash = hashlib.sha256(body_json.encode()).hexdigest()
+    message = f"{timestamp}\n{method.upper()}\n{path}\n{body_hash}"
+    api_proxy_signature = hmac.new(
+        client_secret.encode("utf-8"),
+        message.encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()
+
+    # 署名が一致することを確認
+    assert auth_signature == api_proxy_signature
+```
+
+#### **統合テスト（本番環境）**
+
+1. Streamlitアプリにログイン
+2. スライド生成機能を実行
+3. ログで確認:
+   ```
+   # 成功時のログ
+   [Unified Auth Server] API proxy request successful for h.hamada@i-seifu.jp
+   [API Proxy Server] Client unified-auth-server authenticated
+   [API Proxy Server] Forwarding to Claude API
+   ```
+
+### 変更履歴
+
+| 日付 | コミット | 説明 |
+|------|---------|------|
+| 2025-12-16 | `95eb568` | HTTPメソッドを大文字化（method.upper()） |
+| 2025-12-23 | `685990f` | JSONシリアライゼーション統一（separators=(',', ':')） |
+| 2025-12-23 | `e0aa82f` | Unified Auth Server自体のクレデンシャルを使用 |
+
+---
