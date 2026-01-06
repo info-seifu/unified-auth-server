@@ -483,9 +483,87 @@ if settings.debug:
 
 ---
 
-## 12. プロジェクト固有のコードレビュー観点
+## 12. Cloud Runデプロイ時の注意事項
 
-### 12.1 認証サーバー特有のセキュリティチェック
+### 環境変数・シークレットの扱い
+
+デプロイ時に環境変数やシークレット設定を消さないため、以下のルールを厳守すること：
+
+| オプション | 動作 | 使用可否 |
+|-----------|------|---------|
+| `--set-env-vars` | 既存をすべて上書き | ❌ **使用禁止** |
+| `--set-secrets` | 既存をすべて上書き | ❌ **使用禁止** |
+| `--update-env-vars` | 追加・更新のみ | ✅ 推奨 |
+| `--update-secrets` | 追加・更新のみ | ✅ 推奨 |
+| 指定なし | 既存設定を保持 | ✅ OK |
+
+### 標準デプロイコマンド
+
+```bash
+# コードのみ更新（環境変数・シークレット設定は保持される）
+gcloud run deploy unified-auth-server \
+  --project=interview-api-472500 \
+  --region=asia-northeast1 \
+  --source=.
+```
+
+### 環境変数を追加・更新する場合
+
+```bash
+# 既存設定を保持しつつ追加・更新
+gcloud run deploy unified-auth-server \
+  --project=interview-api-472500 \
+  --region=asia-northeast1 \
+  --source=. \
+  --update-env-vars=NEW_VAR=value \
+  --update-secrets=NEW_SECRET=secret-name:latest
+```
+
+### 現在の設定を確認
+
+```bash
+gcloud run services describe unified-auth-server \
+  --project=interview-api-472500 \
+  --region=asia-northeast1 \
+  --format="yaml(spec.template.spec.containers[0])"
+```
+
+### シークレット参照の設定（初回のみ）
+
+以下のシークレットがCloud Runにマウントされている必要があります：
+
+| 環境変数 | Secret Manager名 |
+|---------|-----------------|
+| GOOGLE_CLIENT_ID | google-client-id |
+| GOOGLE_CLIENT_SECRET | google-client-secret |
+| JWT_SECRET_KEY | jwt-secret-key |
+
+設定コマンド：
+
+```bash
+gcloud run services update unified-auth-server \
+  --project=interview-api-472500 \
+  --region=asia-northeast1 \
+  --update-secrets=GOOGLE_CLIENT_ID=google-client-id:latest \
+  --update-secrets=GOOGLE_CLIENT_SECRET=google-client-secret:latest \
+  --update-secrets=JWT_SECRET_KEY=jwt-secret-key:latest
+```
+
+### デプロイ後の動作確認
+
+```bash
+# ヘルスチェック
+curl https://unified-auth-server-856773980753.asia-northeast1.run.app/health
+
+# 期待されるレスポンス
+# {"status":"healthy","environment":"production","debug":false}
+```
+
+---
+
+## 13. プロジェクト固有のコードレビュー観点
+
+### 13.1 認証サーバー特有のセキュリティチェック
 
 #### OAuth/JWT関連
 - [ ] JWT_SECRET_KEYがハードコーディングされていないか
@@ -506,7 +584,7 @@ if settings.debug:
 - [ ] プロキシリクエストのタイムアウト設定（60秒）
 - [ ] エラー時の機密情報漏洩防止
 
-### 12.2 FastAPI固有のチェックポイント
+### 13.2 FastAPI固有のチェックポイント
 
 #### 非同期処理
 - [ ] async/awaitが適切に使用されているか
@@ -519,14 +597,14 @@ if settings.debug:
 - [ ] OpenAPI仕様との整合性
 - [ ] Dependsを使った依存性注入の活用
 
-### 12.3 監査ログ関連
+### 13.3 監査ログ関連
 
 - [ ] ログイン成功/失敗が記録されているか
 - [ ] API呼び出しが記録されているか
 - [ ] 機密情報がログに含まれていないか
 - [ ] Firestoreが利用できない場合のフォールバック
 
-### 12.4 レビュー実施例（認証サーバー用）
+### 13.4 レビュー実施例（認証サーバー用）
 
 ```bash
 # 新しい認証エンドポイント追加時
@@ -542,7 +620,7 @@ if settings.debug:
 エッジケースとエラーハンドリングを確認"
 ```
 
-### 12.5 Phase別チェックリスト
+### 13.5 Phase別チェックリスト
 
 #### Phase 1（基本認証）
 - [ ] Google OAuth統合の実装確認
@@ -566,16 +644,18 @@ if settings.debug:
 
 ---
 
-## 13. このファイルの運用ルール
+## 14. このファイルの運用ルール
 
-- 新エンドポイント追加時: セクション3, 4, 12を更新
+- 新エンドポイント追加時: セクション3, 4, 13を更新
 - エラーパターン発見時: セクション11.1に追記
 - 外部サービス追加時: セクション2.2を更新
-- レビュー観点追加時: セクション12を更新
+- レビュー観点追加時: セクション13を更新
+- デプロイ関連追加時: セクション12を更新
 
 ---
 
 ### 更新履歴
 
 - 2024-12-10: 初版作成（Phase 1, 2実装完了時点）
-- 2024-12-15: プロジェクト固有のコードレビュー観点を追加（セクション12）
+- 2024-12-15: プロジェクト固有のコードレビュー観点を追加（セクション13）
+- 2025-01-06: Cloud Runデプロイ時の注意事項を追加（セクション12）
