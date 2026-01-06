@@ -19,10 +19,30 @@ class GoogleOAuthHandler:
 
     def _setup_google_client(self):
         """Setup Google OAuth client"""
+        # Get OAuth credentials from Secret Manager if enabled
+        client_id = settings.google_client_id
+        client_secret = settings.google_client_secret
+
+        if settings.secret_manager_enabled:
+            from app.core.secret_manager import secret_manager_client
+            oauth_creds = secret_manager_client.get_oauth_credentials()
+            if oauth_creds:
+                client_id = oauth_creds.get('client_id', client_id)
+                client_secret = oauth_creds.get('client_secret', client_secret)
+                logger.info("Loaded OAuth credentials from Secret Manager")
+            else:
+                logger.warning("Failed to load OAuth credentials from Secret Manager, using environment variables")
+
+        if not client_id or not client_secret:
+            logger.error("OAuth client credentials not found!")
+            raise ValueError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required")
+
+        logger.info(f"Initializing OAuth with client_id: {client_id}")
+
         self.oauth.register(
             name='google',
-            client_id=settings.google_client_id,
-            client_secret=settings.google_client_secret,
+            client_id=client_id,
+            client_secret=client_secret,
             server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
             client_kwargs={
                 'scope': 'openid email profile',
@@ -53,15 +73,23 @@ class GoogleOAuthHandler:
 
         # Build redirect URI
         if not redirect_uri:
-            # Use default redirect URI from settings
-            redirect_uri = settings.google_redirect_uri.format(project_id=project_id)
-            # Make it absolute URL in production
+            # Validate host header to prevent Host header injection attacks
+            request_host = request.headers.get('host', '')
+            if request_host not in settings.allowed_hosts:
+                logger.warning(
+                    f"Invalid host header detected: {request_host}. "
+                    f"Using default host instead."
+                )
+                # Use default from allowed hosts
+                request_host = settings.allowed_hosts[0] if settings.allowed_hosts else 'localhost:8000'
+
+            # Build redirect URI with validated host
             if settings.is_production:
-                host = request.headers.get('host', 'auth.yourcompany.com')
-                redirect_uri = f"https://{host}/callback/{project_id}"
+                redirect_uri = f"https://{request_host}/callback/{project_id}"
             else:
-                host = request.headers.get('host', 'localhost:8000')
-                redirect_uri = f"http://{host}/callback/{project_id}"
+                redirect_uri = f"http://{request_host}/callback/{project_id}"
+
+            logger.info(f"Built redirect URI: {redirect_uri}")
 
         # Create authorization URL - Authlib will automatically handle state
         # IMPORTANT: Pass request as first argument so Authlib can save state in session
@@ -103,6 +131,7 @@ class GoogleOAuthHandler:
         """
         try:
             # Exchange code for token - Authlib will automatically verify state from session
+            logger.info(f"OAuth callback received for project: {project_id}")
             token = await self.google_client.authorize_access_token(request)
 
             # Get user info from Google
@@ -129,14 +158,26 @@ class GoogleOAuthHandler:
             # Extract access token for Admin SDK calls
             access_token = token.get('access_token', '')
 
-            logger.info(f"OAuth successful for user: {result['email']}")
+            logger.info(
+                f"OAuth successful for user: {result['email']}, "
+                f"project: {project_id}, "
+                f"verified: {result['email_verified']}"
+            )
             return result, access_token
 
         except OAuthError as e:
-            logger.error(f"OAuth error: {str(e)}")
+            logger.error(
+                f"OAuth error for project {project_id}: {str(e)}, "
+                f"client_ip: {request.client.host if request.client else 'unknown'}",
+                exc_info=True
+            )
             raise
         except Exception as e:
-            logger.error(f"Unexpected error during OAuth: {str(e)}")
+            logger.error(
+                f"Unexpected error during OAuth for project {project_id}: {str(e)}, "
+                f"client_ip: {request.client.host if request.client else 'unknown'}",
+                exc_info=True
+            )
             raise OAuthError(f"OAuth flow failed: {str(e)}")
 
     def get_logout_url(self, return_url: Optional[str] = None) -> str:

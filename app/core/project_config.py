@@ -211,12 +211,16 @@ class ProjectConfigManager:
         if self.use_local_config:
             LOCAL_PROJECT_CONFIGS[project_id] = config
             logger.info(f"Updated local project config: {project_id}")
+            # キャッシュをクリア
+            self.clear_cache(project_id)
             return config
 
         try:
             doc_ref = self.firestore_client.collection('projects').document(project_id)
             doc_ref.update(updates)
             logger.info(f"Updated project in Firestore: {project_id}")
+            # キャッシュをクリア
+            self.clear_cache(project_id)
             return config
         except Exception as e:
             logger.error(f"Error updating project in Firestore: {str(e)}")
@@ -236,6 +240,8 @@ class ProjectConfigManager:
             if project_id in LOCAL_PROJECT_CONFIGS:
                 del LOCAL_PROJECT_CONFIGS[project_id]
                 logger.info(f"Deleted local project config: {project_id}")
+                # キャッシュをクリア
+                self.clear_cache(project_id)
                 return True
             return False
 
@@ -243,6 +249,8 @@ class ProjectConfigManager:
             doc_ref = self.firestore_client.collection('projects').document(project_id)
             doc_ref.delete()
             logger.info(f"Deleted project from Firestore: {project_id}")
+            # キャッシュをクリア
+            self.clear_cache(project_id)
             return True
         except Exception as e:
             logger.error(f"Error deleting project from Firestore: {str(e)}")

@@ -29,16 +29,20 @@ class SecretManagerClient:
                 logger.warning(f"Could not initialize Secret Manager client: {str(e)}")
         return self._client
 
-    def get_secret(self, secret_name: str, version: str = "latest") -> Optional[str]:
+    def get_secret(self, secret_name: str, version: str = "latest", raise_on_error: bool = False) -> Optional[str]:
         """
         Get secret value from Secret Manager
 
         Args:
             secret_name: Name of the secret
             version: Secret version (default: latest)
+            raise_on_error: If True, raise exception on error instead of returning None
 
         Returns:
             Secret value as string or None if not found
+
+        Raises:
+            Exception: If raise_on_error=True and secret retrieval fails
         """
         if not self.enabled or not self.client:
             logger.debug(f"Secret Manager disabled, cannot get secret: {secret_name}")
@@ -57,7 +61,9 @@ class SecretManagerClient:
             return payload
 
         except Exception as e:
-            logger.error(f"Failed to get secret {secret_name}: {str(e)}")
+            logger.error(f"Failed to get secret {secret_name}: {str(e)}", exc_info=True)
+            if raise_on_error:
+                raise
             return None
 
     def get_secret_json(self, secret_name: str, version: str = "latest") -> Optional[Dict[str, Any]]:
@@ -111,25 +117,78 @@ class SecretManagerClient:
         """
         Get JWT secret key from Secret Manager
 
+        Critical: JWT secret keyが取得できない場合はエラーを発生させる
+
         Returns:
             JWT secret key
+
+        Raises:
+            RuntimeError: If Secret Manager enabled but secret not found and no fallback
         """
         if not self.enabled:
             # Use environment variable in development
+            if not settings.jwt_secret_key:
+                raise RuntimeError("JWT_SECRET_KEY not configured")
             return settings.jwt_secret_key
 
         secret_name = settings.jwt_key_secret_name
-        secret_key = self.get_secret(secret_name)
+        secret_key = self.get_secret(secret_name, raise_on_error=False)
 
         if not secret_key:
-            logger.warning("JWT secret key not found in Secret Manager, using env var")
-            return settings.jwt_secret_key
+            # フォールバック: 環境変数がある場合は使用
+            if settings.jwt_secret_key:
+                logger.warning(
+                    "JWT secret key not found in Secret Manager, "
+                    "using environment variable as fallback"
+                )
+                return settings.jwt_secret_key
+            else:
+                # 本番環境でSecret ManagerもEnvもない場合はエラー
+                raise RuntimeError(
+                    f"JWT secret key not found in Secret Manager ({secret_name}) "
+                    "and no fallback environment variable configured"
+                )
 
         return secret_key
 
-    def get_api_proxy_credentials(self, email: str, project_id: str) -> Optional[Dict[str, str]]:
+    async def get_secret_async(self, secret_name: str) -> Optional[str]:
         """
-        Get API proxy credentials for a user
+        Get a secret value from Secret Manager (async version)
+
+        Args:
+            secret_name: Name of the secret
+
+        Returns:
+            Secret value as string, or None if not found
+        """
+        if not self.enabled:
+            logger.debug(f"Secret Manager disabled, returning None for {secret_name}")
+            return None
+
+        try:
+            # Construct the full secret path
+            secret_path = f"projects/{self.project_id}/secrets/{secret_name}/versions/latest"
+
+            # Access the secret
+            response = self.client.access_secret_version(request={"name": secret_path})
+            secret_value = response.payload.data.decode('utf-8')
+
+            logger.debug(f"Successfully retrieved secret: {secret_name}")
+            return secret_value
+
+        except Exception as e:
+            logger.error(f"Failed to retrieve secret {secret_name}: {str(e)}")
+            return None
+
+    async def get_api_proxy_credentials_async(
+        self,
+        email: str,
+        project_id: str
+    ) -> Optional[Dict[str, str]]:
+        """
+        Get API proxy credentials for a user (async version)
+
+        非同期処理に対応したAPI proxy credentials取得
 
         Args:
             email: User's email address
@@ -148,22 +207,15 @@ class SecretManagerClient:
 
         # Get the secret path from project config
         from app.core.project_config import project_config_manager
-        import asyncio
 
-        # Get project config synchronously (or use cached version)
         try:
             # Try to get from local config first
             from app.config import LOCAL_PROJECT_CONFIGS
             project_config = LOCAL_PROJECT_CONFIGS.get(project_id)
 
             if not project_config:
-                # Fall back to async call (not ideal but necessary here)
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                project_config = loop.run_until_complete(
-                    project_config_manager.get_project_config(project_id)
-                )
-                loop.close()
+                # Use async call to get project config
+                project_config = await project_config_manager.get_project_config(project_id)
 
             secret_path = project_config.get("api_proxy_credentials_path")
             if not secret_path:
@@ -187,7 +239,7 @@ class SecretManagerClient:
             return user_creds
 
         except Exception as e:
-            logger.error(f"Error getting API proxy credentials: {str(e)}")
+            logger.error(f"Error getting API proxy credentials: {str(e)}", exc_info=True)
             return None
 
 

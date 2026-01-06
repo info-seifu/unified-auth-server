@@ -3,7 +3,7 @@
 from typing import List, Optional, Dict, Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 
 class Settings(BaseSettings):
@@ -18,15 +18,17 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, alias="PORT")
 
     # Google OAuth Configuration
-    google_client_id: str = Field(..., alias="GOOGLE_CLIENT_ID")
-    google_client_secret: str = Field(..., alias="GOOGLE_CLIENT_SECRET")
+    # 本番環境でSecret Manager有効時はOptional（Secret Managerから取得）
+    google_client_id: Optional[str] = Field(None, alias="GOOGLE_CLIENT_ID")
+    google_client_secret: Optional[str] = Field(None, alias="GOOGLE_CLIENT_SECRET")
     google_redirect_uri: str = Field(
         default="http://localhost:8000/callback/{project_id}",
         alias="GOOGLE_REDIRECT_URI"
     )
 
     # JWT Configuration
-    jwt_secret_key: str = Field(..., alias="JWT_SECRET_KEY")
+    # 本番環境でSecret Manager有効時はOptional（Secret Managerから取得）
+    jwt_secret_key: Optional[str] = Field(None, alias="JWT_SECRET_KEY")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     jwt_expiry_days: int = Field(default=30, alias="JWT_EXPIRY_DAYS")
 
@@ -51,6 +53,22 @@ class Settings(BaseSettings):
         default="https://api-key-server.run.app",
         alias="API_PROXY_SERVER_URL"
     )
+    # API Proxy Server Authentication (Unified Auth Server's own credentials)
+    api_proxy_client_id: str = Field(
+        default="unified-auth-server",
+        alias="API_PROXY_CLIENT_ID",
+        description="Client ID for authenticating with API Proxy Server"
+    )
+    api_proxy_hmac_secret: Optional[str] = Field(
+        None,
+        alias="API_PROXY_HMAC_SECRET",
+        description="HMAC secret for authenticating with API Proxy Server"
+    )
+    proxy_timeout_seconds: int = Field(
+        default=300,
+        alias="PROXY_TIMEOUT_SECONDS",
+        description="HTTP timeout for API proxy requests (seconds)"
+    )
 
     # Google Workspace Admin SDK Configuration (Service Account)
     workspace_service_account_file: Optional[str] = Field(
@@ -68,6 +86,13 @@ class Settings(BaseSettings):
     allowed_domains: List[str] = Field(
         default_factory=lambda: ["i-seifu.jp", "i-seifu.ac.jp"],
         alias="ALLOWED_DOMAINS"
+    )
+
+    # Allowed Hosts for redirect URI validation (security)
+    allowed_hosts: str | List[str] = Field(
+        default="localhost:8000",
+        alias="ALLOWED_HOSTS",
+        description="Allowed host headers for redirect URI validation"
     )
 
     # CORS Settings
@@ -111,6 +136,35 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in v.split(",")]
         return v
 
+    @field_validator("allowed_hosts", mode="before")
+    @classmethod
+    def parse_allowed_hosts(cls, v):
+        """Parse comma-separated hosts from environment variable"""
+        if isinstance(v, str):
+            return [host.strip() for host in v.split(",")]
+        return v
+
+    @model_validator(mode='after')
+    def validate_credentials(self):
+        """
+        Validate OAuth and JWT credentials based on Secret Manager configuration
+
+        本番環境でSecret Manager無効時は環境変数必須
+        開発環境でも環境変数が必要
+        """
+        if not self.secret_manager_enabled:
+            # Secret Manager無効時は環境変数必須
+            if not self.google_client_id or not self.google_client_secret:
+                raise ValueError(
+                    "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required "
+                    "when SECRET_MANAGER_ENABLED=false"
+                )
+            if not self.jwt_secret_key:
+                raise ValueError(
+                    "JWT_SECRET_KEY is required when SECRET_MANAGER_ENABLED=false"
+                )
+        return self
+
     @property
     def is_development(self) -> bool:
         """Check if running in development mode"""
@@ -126,13 +180,17 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-# Local project configurations for development
-LOCAL_PROJECT_CONFIGS: Dict[str, Dict[str, Any]] = {
-    "test-project": {
+# Local project configurations for development only
+# これらの設定は開発環境（ENVIRONMENT=development）でのみ使用される
+LOCAL_PROJECT_CONFIGS: Dict[str, Dict[str, Any]] = {}
+
+# 開発環境専用のテスト設定を初期化
+if settings.is_development:
+    LOCAL_PROJECT_CONFIGS["test-project"] = {
         "name": "テストプロジェクト",
         "type": "streamlit_local",
-        "description": "開発用テストプロジェクト",
-        "allowed_domains": ["i-seifu.jp", "i-seifu.ac.jp", "gmail.com"],  # Allow Gmail for testing
+        "description": "開発用テストプロジェクト（本番環境では無効）",
+        "allowed_domains": ["i-seifu.jp", "i-seifu.ac.jp", "gmail.com"],  # 開発環境のみGmail許可
         "student_allowed": False,
         "admin_emails": [],
         "required_groups": [],
@@ -142,12 +200,15 @@ LOCAL_PROJECT_CONFIGS: Dict[str, Dict[str, Any]] = {
         "token_expiry_days": 30,
         "api_proxy_enabled": True,
         "product_id": "product-TestProject"
-    },
-    "slide-video": {
+    }
+
+# 以下のプロジェクト設定は開発・本番環境共通
+if settings.is_development or settings.use_local_config:
+    LOCAL_PROJECT_CONFIGS["slide-video"] = {
         "name": "スライド動画生成システム",
         "type": "streamlit_local",
         "description": "PowerPointから動画を生成するツール",
-        "allowed_domains": ["i-seifu.jp", "i-seifu.ac.jp"],
+        "allowed_domains": settings.allowed_domains,  # 環境変数から取得
         "student_allowed": False,
         "admin_emails": [],
         "required_groups": [],
@@ -160,23 +221,22 @@ LOCAL_PROJECT_CONFIGS: Dict[str, Dict[str, Any]] = {
         "api_proxy_enabled": True,
         "product_id": "product-SlideVideo",
         "api_proxy_credentials_path": "projects/xxx/secrets/slidevideo-users"
-    },
-    "group-ou-test": {
+    }
+    LOCAL_PROJECT_CONFIGS["group-ou-test"] = {
         "name": "グループ・OU認証テスト",
         "type": "streamlit_local",
         "description": "Google Workspaceグループと組織部門のテスト用プロジェクト",
-        "allowed_domains": ["i-seifu.jp", "i-seifu.ac.jp"],
+        "allowed_domains": settings.allowed_domains,  # 環境変数から取得
         "student_allowed": False,
         "admin_emails": [],
         # グループベース認証のテスト（教職員グループに所属していればOK）
         "required_groups": [],
-        "allowed_groups": ["staff@i-seifu.jp"],
-        # 組織部門ベース認証（コメントアウト）
+        "allowed_groups": [],  # 本番環境では環境変数で指定
+        # 組織部門ベース認証
         "required_org_units": [],
-        "allowed_org_units": [],  # ["/総務部"] をコメントアウト
+        "allowed_org_units": [],
         "redirect_uris": ["http://localhost:8501/", "http://localhost:3000/callback"],
         "token_delivery": "query_param",
         "token_expiry_days": 30,
         "api_proxy_enabled": False
     }
-}

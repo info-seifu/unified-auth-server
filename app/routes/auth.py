@@ -49,9 +49,13 @@ async def login(
         if redirect_uri:
             allowed_uris = project_config.get('redirect_uris', [])
             if not validate_redirect_uri(redirect_uri, allowed_uris):
+                # セキュリティ: 本番環境では許可URIリストを露出しない
+                detail_msg = "Invalid redirect_uri"
+                if settings.is_development:
+                    detail_msg += f". Allowed URIs: {allowed_uris}"
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid redirect_uri. Allowed URIs: {allowed_uris}"
+                    detail=detail_msg
                 )
 
         # Store redirect_uri and state in session for later use
@@ -149,6 +153,8 @@ async def callback(
             )
         except Exception as e:
             # Log failed attempt with enhanced details
+            # ドメイン抽出（バリデーション付き）
+            domain = validators.extract_domain(user_info['email'])
             await firestore_manager.log_audit_event(
                 event_type='login_failed',
                 project_id=project_id,
@@ -156,7 +162,7 @@ async def callback(
                 details={
                     'reason': str(e),
                     'error_code': getattr(e, 'error_code', 'UNKNOWN'),
-                    'domain': user_info['email'].split('@')[1],
+                    'domain': domain if domain else 'unknown',
                     'is_student': validators.is_student_email(user_info['email']),
                     'groups': user_groups,
                     'org_unit': user_org_unit
@@ -176,13 +182,14 @@ async def callback(
         )
 
         # Log successful login with enhanced details
+        domain = validators.extract_domain(user_info['email'])
         await firestore_manager.log_audit_event(
             event_type='login_success',
             project_id=project_id,
             user_email=user_info['email'],
             details={
                 'name': user_info['name'],
-                'domain': user_info['email'].split('@')[1],
+                'domain': domain if domain else 'unknown',
                 'is_student': validators.is_student_email(user_info['email']),
                 'login_method': 'google_oauth',
                 'token_expiry_days': project_config.get('token_expiry_days', 30),
@@ -193,14 +200,17 @@ async def callback(
             user_agent=request.headers.get('user-agent')
         )
 
-        # Determine redirect URL
-        client_redirect_uri = request.session.get('client_redirect_uri')
+        # Determine redirect URL (セッションから取得後、削除してクリーンアップ)
+        client_redirect_uri = request.session.pop('client_redirect_uri', None)
         if not client_redirect_uri:
             # Use default redirect URI from project config
-            client_redirect_uri = project_config.get('redirect_uris', [])[0]
+            redirect_uris = project_config.get('redirect_uris', [])
+            if not redirect_uris:
+                raise ValueError("No redirect_uris configured for project")
+            client_redirect_uri = redirect_uris[0]
 
-        # Get client state if provided
-        client_state = request.session.get('client_state')
+        # Get client state if provided (セッションから取得後、削除してクリーンアップ)
+        client_state = request.session.pop('client_state', None)
 
         # Build redirect URL based on token delivery method
         token_delivery = project_config.get('token_delivery', 'query_param')
@@ -243,7 +253,7 @@ async def callback(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Callback error: {str(e)}")
+        logger.error(f"Callback error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
