@@ -28,9 +28,16 @@ app = FastAPI(
 )
 
 # Add session middleware for OAuth state management
+# Validate that JWT_SECRET_KEY is set
+if not settings.jwt_secret_key:
+    raise ValueError(
+        "JWT_SECRET_KEY must be set in environment variables. "
+        "This is required for secure session management and cannot be auto-generated."
+    )
+
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.jwt_secret_key or secrets.token_urlsafe(32),
+    secret_key=settings.jwt_secret_key,
     session_cookie="auth_session",
     max_age=3600,  # 1 hour
     same_site="lax",
