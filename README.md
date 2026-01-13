@@ -404,6 +404,7 @@ gcloud secrets add-iam-policy-binding api-proxy-hmac-secret \
 ## 関連ドキュメント
 
 - [設計書](docs/DESIGN.md) - システム全体の設計詳細
+- [タイムアウト設定ガイド](docs/TIMEOUT_CONFIGURATION.md) - タイムアウト設定の指針と変更手順
 - [OpenAPI仕様](auth_server_api.yaml) - API仕様書
 
 ## ライセンス

@@ -30,8 +30,12 @@ steps:
       - '--max-instances=10'
       - '--memory=512Mi'
       - '--cpu=1'
-      - '--timeout=60s'
-      # 既存の環境変数・シークレット設定を保持（--set-env-vars や --set-secrets は使用しない）
+      # タイムアウト設定: API Proxy Serverへのリクエストを含む全体の処理時間
+      - '--timeout=300s'
+      # 環境変数: API Proxy Serverへのリクエストタイムアウト（API Proxy Serverと統一）
+      # 注: Cloud Runタイムアウト（300s）より短く設定してエラーハンドリングを可能にする
+      - '--update-env-vars=PROXY_TIMEOUT_SECONDS=240'
+      # 既存のシークレット設定を保持（--set-secrets は使用しない）
 
 images:
   - 'gcr.io/$PROJECT_ID/unified-auth-server:$SHORT_SHA'
