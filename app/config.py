@@ -240,3 +240,39 @@ if settings.is_development or settings.use_local_config:
         "token_expiry_days": 30,
         "api_proxy_enabled": False
     }
+
+    # 進路指導ポータル Shinro Compass
+    LOCAL_PROJECT_CONFIGS["shinro-compass"] = {
+        "name": "進路指導ポータル Shinro Compass",
+        "type": "webapp",
+        "description": "清風情報工科学院 日本語科の進路指導ポータル（学生400名・教職員50名）",
+        "allowed_domains": ["i-seifu.jp"],
+        "student_allowed": True,
+        "admin_emails": [],
+        "required_groups": [],
+        "allowed_groups": [],
+        "required_org_units": [],
+        "allowed_org_units": [],
+        "redirect_uris": [
+            "http://localhost:3000/callback"
+            # 本番URL確定後に追加: "https://shinro-compass-xxx.run.app/callback"
+        ],
+        "token_delivery": "cookie",
+        "token_expiry_days": 30,
+        "api_proxy_enabled": True,
+        "product_id": "shinro-compass",
+        # ロール判定ルール（priorityが小さいほど優先）
+        "role_rules": [
+            {
+                "priority": 1,
+                "role": "teacher",
+                "condition_type": "group_membership",
+                "group_email": "staff@i-seifu.jp"
+            },
+            {
+                "priority": 2,
+                "role": "student",
+                "condition_type": "default"
+            }
+        ]
+    }

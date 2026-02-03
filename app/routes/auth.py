@@ -172,13 +172,87 @@ async def callback(
             )
             raise
 
-        # Create JWT token
+        # ロール判定（role_rulesが設定されている場合）
+        user_role = None
+        role_rules = project_config.get('role_rules')
+        if role_rules:
+            # ロール判定にグループ情報が必要な場合、まだ取得していなければ取得
+            needs_groups = any(
+                rule.get('condition_type') == 'group_membership'
+                for rule in role_rules
+            )
+            if needs_groups and user_groups is None and workspace_admin_client.is_initialized:
+                try:
+                    user_groups = await workspace_admin_client.get_user_groups(
+                        user_info['email']
+                    )
+                    logger.info(f"Retrieved {len(user_groups)} groups for role resolution")
+                except Exception as e:
+                    logger.warning(f"Failed to get groups for role resolution: {str(e)}")
+                    user_groups = []
+
+            # priorityでソートしてルールを評価
+            sorted_rules = sorted(role_rules, key=lambda r: r.get('priority', 999))
+            for rule in sorted_rules:
+                condition_type = rule.get('condition_type')
+                role = rule.get('role')
+
+                if not condition_type or not role:
+                    continue
+
+                matched = False
+
+                if condition_type == 'default':
+                    # デフォルトルールは常にマッチ
+                    matched = True
+
+                elif condition_type == 'group_membership':
+                    # グループメンバーシップ判定
+                    group_email = rule.get('group_email')
+                    if group_email and user_groups:
+                        # user_groupsはメールアドレスのリスト
+                        matched = group_email.lower() in [g.lower() for g in user_groups]
+
+                elif condition_type == 'email_pattern':
+                    # メールパターンマッチ
+                    import re
+                    pattern = rule.get('email_pattern')
+                    if pattern:
+                        try:
+                            matched = bool(re.match(pattern, user_info['email']))
+                        except re.error:
+                            logger.warning(f"Invalid regex pattern: {pattern}")
+
+                elif condition_type == 'email_list':
+                    # メールリストマッチ
+                    email_list = rule.get('email_list', [])
+                    matched = user_info['email'].lower() in [e.lower() for e in email_list]
+
+                if matched:
+                    user_role = role
+                    logger.info(f"Role resolved: {user_info['email']} -> {user_role} (condition: {condition_type})")
+                    break
+
+            if not user_role:
+                logger.warning(f"No matching role rule for {user_info['email']}")
+
+        # Create JWT token with optional role claim
         token_expiry_days = project_config.get('token_expiry_days', settings.jwt_expiry_days)
+        additional_claims = {}
+        if user_role:
+            additional_claims['role'] = user_role
+        # Google OAuthから取得したpictureとsubも追加
+        if user_info.get('picture'):
+            additional_claims['picture'] = user_info['picture']
+        if user_info.get('sub'):
+            additional_claims['sub'] = user_info['sub']
+
         token = jwt_handler.create_token(
             email=user_info['email'],
             name=user_info['name'],
             project_id=project_id,
-            expiry_days=token_expiry_days
+            expiry_days=token_expiry_days,
+            additional_claims=additional_claims if additional_claims else None
         )
 
         # Log successful login with enhanced details
@@ -194,7 +268,8 @@ async def callback(
                 'login_method': 'google_oauth',
                 'token_expiry_days': project_config.get('token_expiry_days', 30),
                 'groups': user_groups,
-                'org_unit': user_org_unit
+                'org_unit': user_org_unit,
+                'role': user_role
             },
             ip_address=request.client.host,
             user_agent=request.headers.get('user-agent')
