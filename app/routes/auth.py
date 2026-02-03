@@ -113,17 +113,28 @@ async def callback(
         user_groups = None
         user_org_unit = None
 
-        # プロジェクト設定にグループまたはOU検証が含まれている場合のみ取得
+        # role_rulesでgroup_membershipが使われているかチェック
+        role_rules = project_config.get('role_rules', [])
+        needs_groups_for_role = any(
+            rule.get('condition_type') == 'group_membership'
+            for rule in role_rules
+        ) if role_rules else False
+
+        # プロジェクト設定にグループまたはOU検証が含まれている場合、またはrole_rulesでグループが必要な場合
         if (project_config.get('required_groups') or
             project_config.get('allowed_groups') or
             project_config.get('required_org_units') or
-            project_config.get('allowed_org_units')):
+            project_config.get('allowed_org_units') or
+            needs_groups_for_role):
 
             # サービスアカウントが初期化されているか確認
             if workspace_admin_client.is_initialized:
                 try:
                     # グループ情報の取得（サービスアカウント使用）
-                    if project_config.get('required_groups') or project_config.get('allowed_groups'):
+                    # allowed_groups/required_groupsまたはrole_rulesでグループが必要な場合
+                    if (project_config.get('required_groups') or
+                        project_config.get('allowed_groups') or
+                        needs_groups_for_role):
                         user_groups = await workspace_admin_client.get_user_groups(
                             user_info['email']
                         )
@@ -174,23 +185,7 @@ async def callback(
 
         # ロール判定（role_rulesが設定されている場合）
         user_role = None
-        role_rules = project_config.get('role_rules')
         if role_rules:
-            # ロール判定にグループ情報が必要な場合、まだ取得していなければ取得
-            needs_groups = any(
-                rule.get('condition_type') == 'group_membership'
-                for rule in role_rules
-            )
-            if needs_groups and user_groups is None and workspace_admin_client.is_initialized:
-                try:
-                    user_groups = await workspace_admin_client.get_user_groups(
-                        user_info['email']
-                    )
-                    logger.info(f"Retrieved {len(user_groups)} groups for role resolution")
-                except Exception as e:
-                    logger.warning(f"Failed to get groups for role resolution: {str(e)}")
-                    user_groups = []
-
             # priorityでソートしてルールを評価
             sorted_rules = sorted(role_rules, key=lambda r: r.get('priority', 999))
             for rule in sorted_rules:
