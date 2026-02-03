@@ -248,3 +248,86 @@ class AuditStatisticsResponse(BaseModel):
     statistics: AuditStatistics = Field(..., description="Audit statistics")
     project_id: Optional[str] = Field(None, description="Project ID if filtered")
     period_days: int = Field(..., description="Analysis period in days")
+
+
+class RoleRule(BaseModel):
+    """ロール判定ルール
+
+    プロジェクト設定内でユーザーのロールを決定するためのルール定義。
+    priorityが小さいほど優先度が高く、最初にマッチしたルールが適用される。
+    """
+
+    priority: int = Field(..., description="優先順位（小さいほど優先）", ge=1)
+    role: str = Field(..., description="割り当てるロール名", example="teacher")
+    condition_type: Literal["group_membership", "email_pattern", "email_list", "default"] = Field(
+        ...,
+        description="判定条件の種類"
+    )
+    # group_membership用
+    group_email: Optional[str] = Field(
+        None,
+        description="Google Groupのメールアドレス（condition_type=group_membershipの場合）",
+        example="staff@i-seifu.jp"
+    )
+    # email_pattern用
+    email_pattern: Optional[str] = Field(
+        None,
+        description="メールアドレスの正規表現パターン（condition_type=email_patternの場合）",
+        example=r"^\d{8}@i-seifu\.jp$"
+    )
+    # email_list用
+    email_list: Optional[List[str]] = Field(
+        None,
+        description="許可するメールアドレスのリスト（condition_type=email_listの場合）"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "summary": "グループメンバーシップによる判定",
+                    "value": {
+                        "priority": 1,
+                        "role": "teacher",
+                        "condition_type": "group_membership",
+                        "group_email": "staff@i-seifu.jp"
+                    }
+                },
+                {
+                    "summary": "デフォルトロール",
+                    "value": {
+                        "priority": 99,
+                        "role": "student",
+                        "condition_type": "default"
+                    }
+                }
+            ]
+        }
+    )
+
+
+class ProjectConfig(BaseModel):
+    """プロジェクト設定スキーマ"""
+
+    name: str = Field(..., description="プロジェクト名")
+    type: Literal["streamlit_local", "streamlit_cloud", "web_app", "webapp", "api_service"] = Field(
+        ...,
+        description="プロジェクトタイプ"
+    )
+    description: Optional[str] = Field(None, description="プロジェクトの説明")
+    allowed_domains: List[str] = Field(..., description="許可するメールドメイン")
+    student_allowed: bool = Field(default=False, description="学生アカウントを許可するか")
+    admin_emails: List[str] = Field(default_factory=list, description="管理者メールアドレス")
+    required_groups: List[str] = Field(default_factory=list, description="必須グループ")
+    allowed_groups: List[str] = Field(default_factory=list, description="許可グループ")
+    required_org_units: List[str] = Field(default_factory=list, description="必須組織部門")
+    allowed_org_units: List[str] = Field(default_factory=list, description="許可組織部門")
+    redirect_uris: List[str] = Field(..., description="許可するリダイレクトURI")
+    token_delivery: Literal["query_param", "cookie"] = Field(..., description="トークン配信方法")
+    token_expiry_days: int = Field(default=30, description="トークン有効期限（日数）")
+    api_proxy_enabled: bool = Field(default=False, description="APIプロキシを有効化")
+    product_id: Optional[str] = Field(None, description="APIプロキシ用プロダクトID")
+    role_rules: Optional[List[RoleRule]] = Field(
+        None,
+        description="ロール判定ルール（priorityが小さいほど優先）"
+    )
