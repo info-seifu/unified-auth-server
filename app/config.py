@@ -257,7 +257,9 @@ if settings.is_development or settings.use_local_config:
             "http://localhost:3000/callback"
             # 本番URL確定後に追加: "https://shinro-compass-xxx.run.app/callback"
         ],
-        "token_delivery": "cookie",
+        # 開発環境: query_param（異なるドメイン間ではcookieが使えないため）
+        # 本番環境で同一ドメインの場合は cookie に変更可能
+        "token_delivery": "query_param",
         "token_expiry_days": 30,
         "api_proxy_enabled": True,
         "product_id": "shinro-compass",
