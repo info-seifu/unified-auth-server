@@ -248,7 +248,7 @@ if settings.is_development or settings.use_local_config:
         "description": "清風情報工科学院 日本語科の進路指導ポータル（学生400名・教職員50名）",
         "allowed_domains": ["i-seifu.jp"],
         "student_allowed": True,
-        "admin_emails": [],
+        "admin_emails": ["h.hamada@i-seifu.jp"],
         "required_groups": [],
         "allowed_groups": [],
         "required_org_units": [],
@@ -262,15 +262,28 @@ if settings.is_development or settings.use_local_config:
         "api_proxy_enabled": True,
         "product_id": "shinro-compass",
         # ロール判定ルール（priorityが小さいほど優先）
+        # 判定順: 管理者 → 事務 → 教員 → 生徒
         "role_rules": [
             {
                 "priority": 1,
+                "role": "admin",
+                "condition_type": "email_match",
+                "emails": ["h.hamada@i-seifu.jp"]
+            },
+            {
+                "priority": 2,
+                "role": "office",
+                "condition_type": "group_membership",
+                "group_email": "office@i-seifu.jp"
+            },
+            {
+                "priority": 3,
                 "role": "teacher",
                 "condition_type": "group_membership",
                 "group_email": "staff@i-seifu.jp"
             },
             {
-                "priority": 2,
+                "priority": 4,
                 "role": "student",
                 "condition_type": "default"
             }
