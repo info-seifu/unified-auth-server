@@ -267,8 +267,8 @@ if settings.is_development or settings.use_local_config:
             {
                 "priority": 1,
                 "role": "admin",
-                "condition_type": "email_match",
-                "emails": ["h.hamada@i-seifu.jp"]
+                "condition_type": "email_list",
+                "email_list": ["h.hamada@i-seifu.jp"]
             },
             {
                 "priority": 2,
