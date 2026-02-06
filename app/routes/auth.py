@@ -5,6 +5,7 @@ from fastapi.responses import RedirectResponse
 from typing import Optional
 import logging
 import urllib.parse
+import jwt as pyjwt
 
 from app.config import settings
 from app.core.oauth import google_oauth_handler
@@ -15,7 +16,8 @@ from app.core import validators  # Import validators module for is_student_email
 from app.core.firestore_client import firestore_manager
 from app.core.workspace_admin import workspace_admin_client
 from app.core.errors import ProjectNotFoundError
-from app.models.schemas import UserInfo, ErrorResponse, TokenResponse
+from app.core.token_store import token_store
+from app.models.schemas import UserInfo, ErrorResponse, TokenResponse, RefreshTokenRequest, TokenRefreshResponse
 
 logger = logging.getLogger(__name__)
 
@@ -231,23 +233,28 @@ async def callback(
             if not user_role:
                 logger.warning(f"No matching role rule for {user_info['email']}")
 
-        # Create JWT token with optional role claim
-        token_expiry_days = project_config.get('token_expiry_days', settings.jwt_expiry_days)
+        # アクセストークン生成（1時間固定）
         additional_claims = {}
-        if user_role:
-            additional_claims['role'] = user_role
         # Google OAuthから取得したpictureとsubも追加
         if user_info.get('picture'):
             additional_claims['picture'] = user_info['picture']
         if user_info.get('sub'):
             additional_claims['sub'] = user_info['sub']
 
-        token = jwt_handler.create_token(
+        access_token = jwt_handler.create_access_token(
             email=user_info['email'],
             name=user_info['name'],
             project_id=project_id,
-            expiry_days=token_expiry_days,
+            role=user_role,
             additional_claims=additional_claims if additional_claims else None
+        )
+
+        # リフレッシュトークン生成（プロダクト設定に基づく）
+        refresh_expiry_days = project_config.get('refresh_token_expiry_days', 30)
+        refresh_token = jwt_handler.create_refresh_token(
+            email=user_info['email'],
+            project_id=project_id,
+            expiry_days=refresh_expiry_days
         )
 
         # Log successful login with enhanced details
@@ -286,8 +293,13 @@ async def callback(
         token_delivery = project_config.get('token_delivery', 'query_param')
 
         if token_delivery == 'query_param':
-            # Add token as query parameter
-            params = {'token': token}
+            # トークンをquery_parameterで返す（新方式）
+            params = {
+                'access_token': access_token,
+                'refresh_token': refresh_token,
+                'expires_in': 3600,
+                'token_type': 'Bearer'
+            }
             if client_state:
                 params['state'] = client_state
 
@@ -301,11 +313,19 @@ async def callback(
             response = RedirectResponse(url=client_redirect_uri)
             response.set_cookie(
                 key='auth_token',
-                value=token,
+                value=access_token,
                 httponly=True,
                 secure=settings.is_production,
                 samesite='lax',
-                max_age=token_expiry_days * 24 * 3600
+                max_age=3600  # 1時間
+            )
+            response.set_cookie(
+                key='refresh_token',
+                value=refresh_token,
+                httponly=True,
+                secure=settings.is_production,
+                samesite='lax',
+                max_age=refresh_expiry_days * 24 * 3600
             )
             if client_state:
                 # Add state as query parameter even with cookie delivery
@@ -398,11 +418,11 @@ async def verify_token(
 
 @router.post(
     "/api/refresh",
-    response_model=TokenResponse,
+    response_model=TokenRefreshResponse,
     responses={
         200: {
             "description": "Token refreshed successfully",
-            "model": TokenResponse
+            "model": TokenRefreshResponse
         },
         401: {
             "description": "Token refresh failed",
@@ -410,51 +430,111 @@ async def verify_token(
         }
     },
     summary="Refresh JWT token",
-    description="Refresh an existing JWT token with a new expiry time"
+    description="リフレッシュトークンを使用して新しいアクセストークン・リフレッシュトークンを取得（ローテーション方式）"
 )
-async def refresh_token(
-    token: Optional[str] = Query(None, description="JWT token from query parameter"),
-    expiry_days: Optional[int] = Query(None, description="New token expiry in days"),
-    authorization: Optional[str] = Header(None, description="Authorization header (Bearer token)")
+async def refresh_token_endpoint(
+    request: Request,
+    body: RefreshTokenRequest
 ):
     """
-    Refresh JWT token
+    リフレッシュトークンを使用して新しいトークンを取得
 
-    Accepts token from either:
-    - Query parameter: ?token=xxx
-    - Authorization header: Bearer xxx
-
-    Returns a new token with updated expiry time.
+    ローテーション: 使用済みトークンは無効化
     """
-    # Get token from header or query parameter
-    token_str: Optional[str] = None
-    if authorization and authorization.startswith('Bearer '):
-        token_str = authorization[7:]
-    elif token:
-        token_str = token
+    refresh_token_str = body.refresh_token
+    project_id = body.project_id
 
-    if not token_str:
+    try:
+        # 1. リフレッシュトークン検証
+        payload = jwt_handler.verify_refresh_token(refresh_token_str)
+        jti = payload.get("jti")
+        email = payload.get("email")
+        token_project_id = payload.get("project_id")
+
+        # project_id の確認
+        if project_id and project_id != token_project_id:
+            raise HTTPException(status_code=400, detail="Project ID mismatch")
+
+        project_id = token_project_id
+
+        # 2. 使用済みチェック（ローテーション）
+        if await token_store.is_token_used(jti):
+            # 再利用検知 → セキュリティイベント
+            logger.warning(f"Refresh token reuse detected: {email}, {project_id}")
+            await firestore_manager.log_audit_event(
+                event_type='refresh_token_reuse',
+                project_id=project_id,
+                user_email=email,
+                details={'jti': jti},
+                ip_address=request.client.host
+            )
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error": "REFRESH_TOKEN_REUSED",
+                    "detail": "Refresh token has already been used",
+                    "message": "セキュリティ上の理由でログアウトされました。別の場所でログインされた可能性があります。"
+                }
+            )
+
+        # 3. 使用済みとしてマーク
+        await token_store.mark_token_as_used(
+            jti=jti,
+            email=email,
+            project_id=project_id,
+            ip_address=request.client.host
+        )
+
+        # 4. プロジェクト設定を取得
+        project_config = await project_config_manager.get_project_config(project_id)
+
+        # 5. 新しいアクセストークン生成
+        # リフレッシュトークンにはnameやroleが含まれていないため、
+        # プロジェクト設定から取得するか、空として扱う
+        new_access_token = jwt_handler.create_access_token(
+            email=email,
+            name="",  # リフレッシュトークンにはnameがないため空
+            project_id=project_id
+        )
+
+        # 6. 新しいリフレッシュトークン生成（ローテーション）
+        refresh_expiry_days = project_config.get('refresh_token_expiry_days', 30)
+        new_refresh_token = jwt_handler.create_refresh_token(
+            email=email,
+            project_id=project_id,
+            expiry_days=refresh_expiry_days
+        )
+
+        # 7. 監査ログ
+        await firestore_manager.log_audit_event(
+            event_type='token_refresh',
+            project_id=project_id,
+            user_email=email,
+            details={'old_jti': jti},
+            ip_address=request.client.host
+        )
+
+        return TokenRefreshResponse(
+            access_token=new_access_token,
+            refresh_token=new_refresh_token,
+            token_type="Bearer",
+            expires_in=3600
+        )
+
+    except pyjwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=401,
             detail={
-                "error": "AUTH_004",
-                "detail": "No token provided",
-                "message": "Authentication token is required"
+                "error": "REFRESH_TOKEN_EXPIRED",
+                "detail": "Refresh token has expired",
+                "message": "セッションの有効期限が切れました。再度ログインしてください。"
             }
         )
-
-    try:
-        # Refresh token
-        new_token = jwt_handler.refresh_token(token_str, expiry_days)
-        expiry_time = jwt_handler.get_token_expiry(new_token)
-
-        return TokenResponse(
-            token=new_token,
-            expiry=expiry_time.isoformat() if expiry_time else ""
-        )
-
+    except HTTPException:
+        # 既に HTTPException の場合はそのまま再度 raise
+        raise
     except Exception as e:
-        logger.warning(f"Token refresh failed: {str(e)}")
+        logger.error(f"Refresh token error: {str(e)}")
         raise HTTPException(
             status_code=401,
             detail={
