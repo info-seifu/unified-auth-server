@@ -1,6 +1,7 @@
 """JWT token handling"""
 
 import jwt
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 from app.config import settings
@@ -242,6 +243,130 @@ class JWTHandler:
         except Exception:
             pass
         return None
+
+    def create_access_token(
+        self,
+        email: str,
+        name: str,
+        project_id: str,
+        role: Optional[str] = None,
+        additional_claims: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        アクセストークン生成（1時間固定）
+
+        Args:
+            email: ユーザーのメールアドレス
+            name: ユーザー名
+            project_id: プロジェクトID
+            role: ロール（オプション）
+            additional_claims: 追加のクレーム
+
+        Returns:
+            アクセストークン（JWT）
+        """
+        now = datetime.now(timezone.utc)
+        payload = {
+            "email": email,
+            "name": name,
+            "project_id": project_id,
+            "token_type": "access",
+            "iat": now,
+            "exp": now + timedelta(hours=1),  # 1時間固定
+            "iss": "unified-auth-server",
+            "sub": email,
+            "jti": f"access-{secrets.token_urlsafe(16)}"
+        }
+
+        if role:
+            payload["role"] = role
+
+        if additional_claims:
+            payload.update(additional_claims)
+
+        secret_key = self._get_secret_key()
+        token = jwt.encode(payload, secret_key, algorithm=self.algorithm)
+
+        logger.info(f"Access token created for user: {email}, project: {project_id}")
+        return token
+
+    def create_refresh_token(
+        self,
+        email: str,
+        project_id: str,
+        expiry_days: int = 30
+    ) -> str:
+        """
+        リフレッシュトークン生成（プロダクトごとの有効期限）
+
+        Args:
+            email: ユーザーのメールアドレス
+            project_id: プロジェクトID
+            expiry_days: 有効期限（日数）
+
+        Returns:
+            リフレッシュトークン（JWT）
+
+        Note:
+            name, role, pictureは含めない（リフレッシュ時に最新情報取得のため）
+        """
+        now = datetime.now(timezone.utc)
+        payload = {
+            "email": email,
+            "project_id": project_id,
+            "token_type": "refresh",
+            "iat": now,
+            "exp": now + timedelta(days=expiry_days),
+            "iss": "unified-auth-server",
+            "sub": email,
+            "jti": f"refresh-{secrets.token_urlsafe(16)}"
+        }
+
+        secret_key = self._get_secret_key()
+        token = jwt.encode(payload, secret_key, algorithm=self.algorithm)
+
+        logger.info(f"Refresh token created for user: {email}, project: {project_id}, expiry_days: {expiry_days}")
+        return token
+
+    def verify_refresh_token(self, token: str) -> Dict[str, Any]:
+        """
+        リフレッシュトークン検証
+
+        Args:
+            token: リフレッシュトークン
+
+        Returns:
+            デコードされたペイロード
+
+        Raises:
+            InvalidTokenError: トークンが不正
+            TokenExpiredError: トークンの有効期限切れ
+            ValueError: token_typeがrefreshでない
+        """
+        try:
+            secret_key = self._get_secret_key()
+            payload = jwt.decode(
+                token,
+                secret_key,
+                algorithms=[self.algorithm],
+                options={"verify_exp": True},
+                issuer="unified-auth-server"
+            )
+
+            if payload.get("token_type") != "refresh":
+                logger.warning("Invalid token type: expected 'refresh'")
+                raise ValueError("Invalid token type: expected refresh token")
+
+            logger.debug(f"Refresh token verified for user: {payload.get('email')}")
+            return payload
+
+        except jwt.ExpiredSignatureError:
+            logger.warning("Refresh token verification failed: Token expired")
+            raise TokenExpiredError()
+
+        except jwt.InvalidTokenError as e:
+            logger.warning(f"Refresh token verification failed: {str(e)}")
+            raise InvalidTokenError(f"Token verification failed: {str(e)}")
 
 
 # Create a singleton instance

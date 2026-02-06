@@ -198,6 +198,7 @@ if settings.is_development:
         "redirect_uris": ["http://localhost:8501/", "http://localhost:3000/callback"],
         "token_delivery": "query_param",
         "token_expiry_days": 30,
+        "refresh_token_expiry_days": 1,
         "api_proxy_enabled": True,
         "product_id": "product-TestProject"
     }
@@ -218,6 +219,7 @@ if settings.is_development or settings.use_local_config:
         "redirect_uris": ["http://localhost:8501/"],
         "token_delivery": "query_param",
         "token_expiry_days": 30,
+        "refresh_token_expiry_days": 30,
         "api_proxy_enabled": True,
         "product_id": "product-SlideVideo",
         "api_proxy_credentials_path": "projects/xxx/secrets/slidevideo-users"
@@ -238,6 +240,7 @@ if settings.is_development or settings.use_local_config:
         "redirect_uris": ["http://localhost:8501/", "http://localhost:3000/callback"],
         "token_delivery": "query_param",
         "token_expiry_days": 30,
+        "refresh_token_expiry_days": 7,
         "api_proxy_enabled": False
     }
 
@@ -261,6 +264,7 @@ if settings.is_development or settings.use_local_config:
         # 本番環境で同一ドメインの場合は cookie に変更可能
         "token_delivery": "query_param",
         "token_expiry_days": 30,
+        "refresh_token_expiry_days": 1,
         "api_proxy_enabled": True,
         "product_id": "shinro-compass",
         # ロール判定ルール（priorityが小さいほど優先）
