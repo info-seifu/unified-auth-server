@@ -256,13 +256,15 @@ if settings.is_development or settings.use_local_config:
         "allowed_groups": [],
         "required_org_units": [],
         "allowed_org_units": [
-            "/教職員"
+            "/コンピュータ科/広報総務"  # 組織部門ベースで広報部所属のみアクセス許可
         ],
         "redirect_uris": [
-            "http://localhost:5000/auth/callback",
+            "http://localhost:5001/auth/callback",
             # 本番URL（Cloud Run等にデプロイ後に追加）
         ],
-        "token_delivery": "cookie",
+        # 開発環境: query_param（異なるドメイン間ではcookieが使えないため）
+        # 本番環境で同一ドメインの場合は cookie に変更可能
+        "token_delivery": "query_param",
         "token_expiry_days": 1,
         "refresh_token_expiry_days": 30,
         "api_proxy_enabled": False,

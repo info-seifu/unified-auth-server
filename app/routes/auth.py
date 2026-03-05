@@ -156,14 +156,35 @@ async def callback(
             else:
                 logger.warning("Workspace Admin client not initialized. Group/OU validation will be skipped.")
 
+        # role_rulesのemail_listでadmin判定（OU検証スキップ判定用）
+        is_admin_by_email = False
+        role_rules = project_config.get('role_rules', [])
+        if role_rules:
+            for rule in role_rules:
+                if (rule.get('condition_type') == 'email_list' and
+                        user_info['email'].lower() in [e.lower() for e in rule.get('email_list', [])]):
+                    is_admin_by_email = True
+                    break
+
         # Validate user access with groups and org unit
+        # adminメールリストに含まれるユーザーはOU検証をスキップ
         try:
-            validate_user_access(
-                user_info['email'],
-                project_config,
-                user_groups=user_groups,
-                user_org_unit=user_org_unit
-            )
+            if is_admin_by_email:
+                # admin: ドメイン・学生チェックのみ（OU検証スキップ）
+                validate_user_access(
+                    user_info['email'],
+                    project_config,
+                    user_groups=user_groups,
+                    user_org_unit=None  # OU検証をスキップ
+                )
+                logger.info(f"Admin user {user_info['email']} - OU validation skipped")
+            else:
+                validate_user_access(
+                    user_info['email'],
+                    project_config,
+                    user_groups=user_groups,
+                    user_org_unit=user_org_unit
+                )
         except Exception as e:
             # Log failed attempt with enhanced details
             # ドメイン抽出（バリデーション付き）
