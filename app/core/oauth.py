@@ -153,6 +153,7 @@ class GoogleOAuthHandler:
                 'email_verified': user_info.get('email_verified', False),
                 'locale': user_info.get('locale', 'ja'),
                 'hd': user_info.get('hd'),  # Hosted domain (for Google Workspace)
+                'google_id': user_info.get('sub'),  # Google固有ユーザーID（数字文字列）
             }
 
             # Extract access token for Admin SDK calls
