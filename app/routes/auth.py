@@ -235,11 +235,11 @@ async def callback(
 
         # アクセストークン生成（1時間固定）
         additional_claims = {}
-        # Google OAuthから取得したpictureとsubも追加
+        # Google OAuthから取得したpictureとgoogle_idも追加
         if user_info.get('picture'):
             additional_claims['picture'] = user_info['picture']
-        if user_info.get('sub'):
-            additional_claims['sub'] = user_info['sub']
+        if user_info.get('google_id'):
+            additional_claims['google_id'] = user_info['google_id']
 
         access_token = jwt_handler.create_access_token(
             email=user_info['email'],
@@ -400,6 +400,7 @@ async def verify_token(
             email=payload['email'],
             name=payload['name'],
             project_id=payload['project_id'],
+            role=payload.get('role'),
             exp=payload['exp'],
             valid=True
         )

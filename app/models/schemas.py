@@ -12,6 +12,7 @@ class UserInfo(BaseModel):
     email: EmailStr = Field(..., description="User's email address", example="yamada@i-seifu.jp")
     name: str = Field(..., description="User's full name", example="山田太郎")
     project_id: str = Field(..., description="Project identifier", example="slide-video")
+    role: Optional[str] = Field(None, description="User's role in the project", example="voter")
     exp: int = Field(..., description="Token expiry (UNIX timestamp)", example=1738819200)
     valid: bool = Field(default=True, description="Token validity status")
 
@@ -21,6 +22,7 @@ class UserInfo(BaseModel):
                 "email": "yamada@i-seifu.jp",
                 "name": "山田太郎",
                 "project_id": "slide-video",
+                "role": "voter",
                 "exp": 1738819200,
                 "valid": True
             }

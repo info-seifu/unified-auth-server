@@ -244,6 +244,44 @@ if settings.is_development or settings.use_local_config:
         "api_proxy_enabled": False
     }
 
+    # 広報CRM（ガイダンス参加判断支援ツール）
+    LOCAL_PROJECT_CONFIGS["kouhou-crm"] = {
+        "name": "広報CRM（ガイダンス参加判断支援ツール）",
+        "type": "webapp",
+        "description": "清風情報工科学院の広報スタッフがガイダンス案件の投票・決裁を行うツール",
+        "allowed_domains": ["i-seifu.jp"],
+        "student_allowed": False,
+        "admin_emails": [],
+        "required_groups": [],
+        "allowed_groups": [],
+        "required_org_units": [],
+        "allowed_org_units": [
+            "/教職員"
+        ],
+        "redirect_uris": [
+            "http://localhost:5000/auth/callback",
+            # 本番URL（Cloud Run等にデプロイ後に追加）
+        ],
+        "token_delivery": "cookie",
+        "token_expiry_days": 1,
+        "refresh_token_expiry_days": 30,
+        "api_proxy_enabled": False,
+        "product_id": "",
+        "role_rules": [
+            {
+                "priority": 1,
+                "role": "admin",
+                "condition_type": "email_list",
+                "email_list": ["h.hamada@i-seifu.jp"]
+            },
+            {
+                "priority": 99,
+                "role": "voter",
+                "condition_type": "default"
+            }
+        ]
+    }
+
     # 進路指導ポータル Shinro Compass
     LOCAL_PROJECT_CONFIGS["shinro-compass"] = {
         "name": "進路指導ポータル Shinro Compass",
