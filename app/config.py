@@ -291,3 +291,22 @@ if settings.is_development or settings.use_local_config:
             }
         ]
     }
+
+    # 公報CRM
+    LOCAL_PROJECT_CONFIGS["kouhou-crm"] = {
+        "name": "公報CRM",
+        "type": "web_app",
+        "description": "公報部門向けCRMシステム",
+        "allowed_domains": ["i-seifu.jp"],
+        "student_allowed": False,
+        "admin_emails": [],
+        "required_groups": [],
+        "allowed_groups": [],
+        "required_org_units": [],
+        "allowed_org_units": [],
+        "redirect_uris": ["http://localhost:5001/auth/callback"],
+        "token_delivery": "query_param",
+        "token_expiry_days": 30,
+        "api_proxy_enabled": True,
+        "product_id": "kouhou-crm"
+    }
