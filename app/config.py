@@ -267,8 +267,8 @@ if settings.is_development or settings.use_local_config:
         "token_delivery": "query_param",
         "token_expiry_days": 1,
         "refresh_token_expiry_days": 30,
-        "api_proxy_enabled": False,
-        "product_id": "",
+        "api_proxy_enabled": True,
+        "product_id": "kouhou-crm",
         "role_rules": [
             {
                 "priority": 1,
