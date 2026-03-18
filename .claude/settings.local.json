@@ -41,7 +41,17 @@
       "Bash(gcloud secrets add-iam-policy-binding:*)",
       "Bash(gcloud firestore databases list:*)",
       "Bash(gcloud secrets versions access:*)",
-      "Bash(gcloud secrets versions list:*)"
+      "Bash(gcloud secrets versions list:*)",
+      "Bash(gcloud builds list:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(python scripts/init_firestore.py:*)",
+      "Bash(source:*)",
+      "Bash(python3:*)",
+      "Bash(./venv/bin/python:*)",
+      "Bash(git checkout:*)",
+      "Bash(git diff:*)"
     ],
     "deny": [],
     "ask": []

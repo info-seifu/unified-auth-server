@@ -198,6 +198,7 @@ if settings.is_development:
         "redirect_uris": ["http://localhost:8501/", "http://localhost:3000/callback"],
         "token_delivery": "query_param",
         "token_expiry_days": 30,
+        "refresh_token_expiry_days": 1,
         "api_proxy_enabled": True,
         "product_id": "product-TestProject"
     }
@@ -218,6 +219,7 @@ if settings.is_development or settings.use_local_config:
         "redirect_uris": ["http://localhost:8501/"],
         "token_delivery": "query_param",
         "token_expiry_days": 30,
+        "refresh_token_expiry_days": 30,
         "api_proxy_enabled": True,
         "product_id": "product-SlideVideo",
         "api_proxy_credentials_path": "projects/xxx/secrets/slidevideo-users"
@@ -238,7 +240,48 @@ if settings.is_development or settings.use_local_config:
         "redirect_uris": ["http://localhost:8501/", "http://localhost:3000/callback"],
         "token_delivery": "query_param",
         "token_expiry_days": 30,
+        "refresh_token_expiry_days": 7,
         "api_proxy_enabled": False
+    }
+
+    # 広報CRM（ガイダンス参加判断支援ツール）
+    LOCAL_PROJECT_CONFIGS["kouhou-crm"] = {
+        "name": "広報CRM（ガイダンス参加判断支援ツール）",
+        "type": "webapp",
+        "description": "清風情報工科学院の広報スタッフがガイダンス案件の投票・決裁を行うツール",
+        "allowed_domains": ["i-seifu.jp"],
+        "student_allowed": False,
+        "admin_emails": [],
+        "required_groups": [],
+        "allowed_groups": [],
+        "required_org_units": [],
+        "allowed_org_units": [
+            "/コンピュータ科/広報総務"  # 組織部門ベースで広報部所属のみアクセス許可
+        ],
+        "redirect_uris": [
+            "http://localhost:5001/auth/callback",
+            # 本番URL（Cloud Run等にデプロイ後に追加）
+        ],
+        # 開発環境: query_param（異なるドメイン間ではcookieが使えないため）
+        # 本番環境で同一ドメインの場合は cookie に変更可能
+        "token_delivery": "query_param",
+        "token_expiry_days": 1,
+        "refresh_token_expiry_days": 30,
+        "api_proxy_enabled": False,
+        "product_id": "",
+        "role_rules": [
+            {
+                "priority": 1,
+                "role": "admin",
+                "condition_type": "email_list",
+                "email_list": ["h.hamada@i-seifu.jp"]
+            },
+            {
+                "priority": 99,
+                "role": "voter",
+                "condition_type": "default"
+            }
+        ]
     }
 
     # 進路指導ポータル Shinro Compass
@@ -261,6 +304,7 @@ if settings.is_development or settings.use_local_config:
         # 本番環境で同一ドメインの場合は cookie に変更可能
         "token_delivery": "query_param",
         "token_expiry_days": 30,
+        "refresh_token_expiry_days": 1,
         "api_proxy_enabled": True,
         "product_id": "shinro-compass",
         # ロール判定ルール（priorityが小さいほど優先）

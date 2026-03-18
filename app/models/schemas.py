@@ -12,6 +12,7 @@ class UserInfo(BaseModel):
     email: EmailStr = Field(..., description="User's email address", example="yamada@i-seifu.jp")
     name: str = Field(..., description="User's full name", example="山田太郎")
     project_id: str = Field(..., description="Project identifier", example="slide-video")
+    role: Optional[str] = Field(None, description="User's role in the project", example="voter")
     exp: int = Field(..., description="Token expiry (UNIX timestamp)", example=1738819200)
     valid: bool = Field(default=True, description="Token validity status")
 
@@ -21,6 +22,7 @@ class UserInfo(BaseModel):
                 "email": "yamada@i-seifu.jp",
                 "name": "山田太郎",
                 "project_id": "slide-video",
+                "role": "voter",
                 "exp": 1738819200,
                 "valid": True
             }
@@ -306,6 +308,42 @@ class RoleRule(BaseModel):
     )
 
 
+class RefreshTokenRequest(BaseModel):
+    """リフレッシュトークンリクエスト"""
+
+    refresh_token: str = Field(..., description="リフレッシュトークン")
+    project_id: str = Field(..., description="プロジェクトID")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "project_id": "shinro-compass"
+            }
+        }
+    )
+
+
+class TokenRefreshResponse(BaseModel):
+    """トークンリフレッシュレスポンス"""
+
+    access_token: str = Field(..., description="新しいアクセストークン")
+    refresh_token: str = Field(..., description="新しいリフレッシュトークン")
+    token_type: str = Field(default="Bearer", description="トークンタイプ")
+    expires_in: int = Field(default=3600, description="アクセストークン有効期限（秒）")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "token_type": "Bearer",
+                "expires_in": 3600
+            }
+        }
+    )
+
+
 class ProjectConfig(BaseModel):
     """プロジェクト設定スキーマ"""
 
@@ -325,6 +363,7 @@ class ProjectConfig(BaseModel):
     redirect_uris: List[str] = Field(..., description="許可するリダイレクトURI")
     token_delivery: Literal["query_param", "cookie"] = Field(..., description="トークン配信方法")
     token_expiry_days: int = Field(default=30, description="トークン有効期限（日数）")
+    refresh_token_expiry_days: int = Field(default=30, description="リフレッシュトークン有効期限（日数）")
     api_proxy_enabled: bool = Field(default=False, description="APIプロキシを有効化")
     product_id: Optional[str] = Field(None, description="APIプロキシ用プロダクトID")
     role_rules: Optional[List[RoleRule]] = Field(

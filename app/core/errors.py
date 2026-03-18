@@ -41,7 +41,7 @@ class InvalidDomainError(AuthError):
 
         super().__init__(
             error_code="AUTH_001",
-            message=f"Domain '{domain}' is not allowed",
+            message=f"ドメイン '{domain}' からのアクセスは許可されていません",
             status_code=status.HTTP_403_FORBIDDEN,
             details=details
         )
@@ -53,7 +53,7 @@ class StudentNotAllowedError(AuthError):
     def __init__(self, email: str):
         super().__init__(
             error_code="AUTH_002",
-            message="Student accounts are not allowed for this project",
+            message="学生アカウントではこのプロジェクトにアクセスできません",
             status_code=status.HTTP_403_FORBIDDEN,
             details={"email": email}
         )
@@ -65,7 +65,7 @@ class AdminOnlyError(AuthError):
     def __init__(self, email: str):
         super().__init__(
             error_code="AUTH_003",
-            message="This project is restricted to administrators only",
+            message="このプロジェクトは管理者のみアクセス可能です",
             status_code=status.HTTP_403_FORBIDDEN,
             details={"email": email}
         )
@@ -74,7 +74,7 @@ class AdminOnlyError(AuthError):
 class InvalidTokenError(AuthError):
     """Raised when JWT token is invalid"""
 
-    def __init__(self, reason: str = "Invalid token"):
+    def __init__(self, reason: str = "無効なトークンです"):
         super().__init__(
             error_code="AUTH_004",
             message=reason,
@@ -88,7 +88,7 @@ class TokenExpiredError(AuthError):
     def __init__(self):
         super().__init__(
             error_code="AUTH_005",
-            message="Token has expired",
+            message="トークンの有効期限が切れています",
             status_code=status.HTTP_401_UNAUTHORIZED
         )
 
@@ -99,7 +99,7 @@ class ProjectNotFoundError(AuthError):
     def __init__(self, project_id: str):
         super().__init__(
             error_code="AUTH_006",
-            message=f"Project '{project_id}' not found",
+            message=f"プロジェクト '{project_id}' が見つかりません",
             status_code=status.HTTP_404_NOT_FOUND,
             details={"project_id": project_id}
         )
@@ -118,7 +118,7 @@ class GroupMembershipRequiredError(AuthError):
 
         super().__init__(
             error_code="AUTH_007",
-            message="User is not a member of required groups",
+            message="必須グループに所属していないため、アクセスできません",
             status_code=status.HTTP_403_FORBIDDEN,
             details=details
         )
@@ -137,7 +137,7 @@ class NoMatchingGroupError(AuthError):
 
         super().__init__(
             error_code="AUTH_008",
-            message="User is not a member of any allowed groups",
+            message="許可されたグループに所属していないため、アクセスできません",
             status_code=status.HTTP_403_FORBIDDEN,
             details=details
         )
@@ -156,7 +156,7 @@ class OrgUnitMembershipRequiredError(AuthError):
 
         super().__init__(
             error_code="AUTH_009",
-            message="User is not a member of required organizational units",
+            message="必須の組織部門に所属していないため、アクセスできません",
             status_code=status.HTTP_403_FORBIDDEN,
             details=details
         )
@@ -175,7 +175,7 @@ class NoMatchingOrgUnitError(AuthError):
 
         super().__init__(
             error_code="AUTH_010",
-            message="User is not a member of any allowed organizational units",
+            message="許可された組織部門に所属していないため、アクセスできません",
             status_code=status.HTTP_403_FORBIDDEN,
             details=details
         )
@@ -211,7 +211,7 @@ class ClientSecretNotFoundError(ProxyError):
     def __init__(self, email: str):
         super().__init__(
             error_code="PROXY_001",
-            message=f"Client secret not found for user: {email}",
+            message=f"ユーザー {email} のクライアントシークレットが見つかりません",
             status_code=status.HTTP_404_NOT_FOUND,
             details={"email": email}
         )
@@ -223,6 +223,6 @@ class APIProxyFailedError(ProxyError):
     def __init__(self, reason: str):
         super().__init__(
             error_code="PROXY_002",
-            message=f"API proxy request failed: {reason}",
+            message=f"APIプロキシリクエストが失敗しました: {reason}",
             status_code=status.HTTP_502_BAD_GATEWAY
         )
