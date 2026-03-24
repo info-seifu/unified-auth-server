@@ -1,5 +1,6 @@
 """Firestore client setup and management"""
 
+import json
 import os
 import logging
 from datetime import datetime, timedelta, timezone
@@ -59,7 +60,10 @@ class FirestoreManager:
         user_agent: Optional[str] = None
     ) -> None:
         """
-        Log an audit event to Firestore
+        監査イベントをCloud Logging（構造化ログ）に出力する。
+
+        Cloud RunではPythonの標準ログが自動的にCloud Loggingに送られるため、
+        JSON形式で出力することでCloud Loggingコンソールで検索・フィルタが可能。
 
         Args:
             event_type: Type of event (login_success, login_failed, etc.)
@@ -69,36 +73,30 @@ class FirestoreManager:
             ip_address: Client IP address
             user_agent: Client user agent
         """
-        if not self.client:
-            logger.debug("Firestore not available, skipping audit log")
-            return
+        audit_data = {
+            'event_type': event_type,
+            'project_id': project_id,
+            'user_email': user_email,
+            'details': details,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+        }
 
-        try:
-            audit_data = {
-                'timestamp': firestore.SERVER_TIMESTAMP,
-                'event_type': event_type,
-                'project_id': project_id,
-                'user_email': user_email,
-                'details': details
-            }
+        if ip_address:
+            audit_data['ip_address'] = ip_address
+        if user_agent:
+            audit_data['user_agent'] = user_agent
 
-            if ip_address:
-                audit_data['ip_address'] = ip_address
-            if user_agent:
-                audit_data['user_agent'] = user_agent
+        # Cloud Logging向け構造化ログとして出力
+        # Cloud RunではPython標準ログが自動的にCloud Loggingに送られる
+        # セキュリティ関連イベントはWARNINGレベル、それ以外はINFOレベル
+        audit_json = json.dumps(audit_data, ensure_ascii=False, default=str)
+        if event_type in ['login_failed', 'admin_action', 'unauthorized_access']:
+            logger.warning("AUDIT %s", audit_json)
+        else:
+            logger.info("AUDIT %s", audit_json)
 
-            self.client.collection('audit_logs').add(audit_data)
-            logger.debug(f"Logged audit event: {event_type} for {user_email}")
-
-        except Exception as e:
-            logger.error(f"Failed to log audit event: {str(e)}", exc_info=True)
-
-            # Critical監査ログの失敗は警告レベルでも記録
-            if event_type in ['login_failed', 'admin_action', 'unauthorized_access']:
-                logger.warning(
-                    f"CRITICAL: Failed to log important audit event: "
-                    f"event_type={event_type}, user={user_email}, project={project_id}"
-                )
+        # NOTE: Firestoreへの書き込みは無効化中（DBが未作成のため）
+        # Firestoreデータベース作成後、この処理を復活させる場合はgit履歴を参照
 
     async def get_user_settings(self, email: str) -> Optional[Dict[str, Any]]:
         """
