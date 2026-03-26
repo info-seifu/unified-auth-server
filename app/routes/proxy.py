@@ -5,6 +5,7 @@ import logging
 import json
 
 from fastapi import APIRouter, Request, HTTPException, Depends, Header
+from fastapi.responses import Response
 import httpx
 
 from app.config import settings
@@ -280,7 +281,19 @@ async def proxy_request(
 
             # Return the response from API proxy
             logger.info(f"API proxy request successful for {email}")
-            return response.json()
+
+            # Content-Typeに応じてレスポンスを返す
+            # 音声データ等のバイナリはそのまま返し、JSONのみパースする
+            content_type = response.headers.get("content-type", "")
+            if content_type.startswith("application/json"):
+                return response.json()
+            else:
+                # バイナリデータ（音声等）はそのまま返す
+                return Response(
+                    content=response.content,
+                    media_type=content_type,
+                    status_code=response.status_code,
+                )
 
     except httpx.RequestError as e:
         logger.error(f"Failed to connect to API proxy: {str(e)}")
