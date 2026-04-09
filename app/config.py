@@ -349,9 +349,9 @@ if settings.is_development or settings.use_local_config:
         "required_org_units": [],
         "allowed_org_units": [],
         "redirect_uris": [
-            "https://line-harness.iseifu-line.workers.dev/auth/callback",
-            "http://localhost:8787/auth/callback",
-            "http://localhost:3001/auth/callback",
+            "https://line-harness.iseifu-line.workers.dev/api/auth/callback",
+            "http://localhost:8787/api/auth/callback",
+            "http://localhost:3001/api/auth/callback",
         ],
         "token_delivery": "query_param",
         "token_expiry_days": 1,
