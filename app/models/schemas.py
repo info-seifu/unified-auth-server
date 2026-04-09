@@ -261,7 +261,7 @@ class RoleRule(BaseModel):
 
     priority: int = Field(..., description="優先順位（小さいほど優先）", ge=1)
     role: str = Field(..., description="割り当てるロール名", example="teacher")
-    condition_type: Literal["group_membership", "email_pattern", "email_list", "default"] = Field(
+    condition_type: Literal["group_membership", "email_pattern", "email_list", "org_unit", "default"] = Field(
         ...,
         description="判定条件の種類"
     )
@@ -281,6 +281,12 @@ class RoleRule(BaseModel):
     email_list: Optional[List[str]] = Field(
         None,
         description="許可するメールアドレスのリスト（condition_type=email_listの場合）"
+    )
+    # org_unit用
+    org_unit_path: Optional[str] = Field(
+        None,
+        description="組織部門パス（condition_type=org_unitの場合）。階層マッチング対応",
+        example="/コンピュータ科/広報総務"
     )
 
     model_config = ConfigDict(
