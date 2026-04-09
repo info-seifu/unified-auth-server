@@ -115,19 +115,24 @@ async def callback(
         user_groups = None
         user_org_unit = None
 
-        # role_rulesでgroup_membershipが使われているかチェック
+        # role_rulesでgroup_membershipやorg_unitが使われているかチェック
         role_rules = project_config.get('role_rules', [])
         needs_groups_for_role = any(
             rule.get('condition_type') == 'group_membership'
             for rule in role_rules
         ) if role_rules else False
+        needs_org_unit_for_role = any(
+            rule.get('condition_type') == 'org_unit'
+            for rule in role_rules
+        ) if role_rules else False
 
-        # プロジェクト設定にグループまたはOU検証が含まれている場合、またはrole_rulesでグループが必要な場合
+        # プロジェクト設定にグループまたはOU検証が含まれている場合、またはrole_rulesでグループ/OUが必要な場合
         if (project_config.get('required_groups') or
             project_config.get('allowed_groups') or
             project_config.get('required_org_units') or
             project_config.get('allowed_org_units') or
-            needs_groups_for_role):
+            needs_groups_for_role or
+            needs_org_unit_for_role):
 
             # サービスアカウントが初期化されているか確認
             if workspace_admin_client.is_initialized:
@@ -143,7 +148,9 @@ async def callback(
                         logger.info(f"Retrieved {len(user_groups)} groups for {user_info['email']}")
 
                     # 組織部門情報の取得（サービスアカウント使用）
-                    if project_config.get('required_org_units') or project_config.get('allowed_org_units'):
+                    if (project_config.get('required_org_units') or
+                        project_config.get('allowed_org_units') or
+                        needs_org_unit_for_role):
                         user_org_unit = await workspace_admin_client.get_user_org_unit(
                             user_info['email']
                         )
@@ -245,6 +252,14 @@ async def callback(
                     # メールリストマッチ
                     email_list = rule.get('email_list', [])
                     matched = user_info['email'].lower() in [e.lower() for e in email_list]
+
+                elif condition_type == 'org_unit':
+                    # 組織部門マッチ（階層対応）
+                    org_unit_path = rule.get('org_unit_path')
+                    if org_unit_path and user_org_unit:
+                        matched = workspace_admin_client.check_org_unit_hierarchy(
+                            user_org_unit, org_unit_path
+                        )
 
                 if matched:
                     user_role = role
