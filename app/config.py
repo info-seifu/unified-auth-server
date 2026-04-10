@@ -360,16 +360,25 @@ if settings.is_development or settings.use_local_config:
         "api_proxy_enabled": False,
         "product_id": "product-LineHarness",
         # ログインゲートで広報総務のみに絞った上で、
-        # 管理者メール以外は default で user ロールを付与する
+        # owner/admin メール以外は default で user ロールを付与する
+        # - owner: システム管理者（LINE Harness の全機能を実行可能）
+        # - admin: 広報チームリーダー（日常運用・権限管理・横断配信承認）
+        # - user: 現場教員（LINE Harness 側では staff ロールにマッピング）
         "role_rules": [
             {
                 "priority": 1,
-                "role": "admin",
+                "role": "owner",
                 "condition_type": "email_list",
                 "email_list": ["h.hamada@i-seifu.jp"]
             },
             {
                 "priority": 2,
+                "role": "admin",
+                "condition_type": "email_list",
+                "email_list": []  # 将来、広報チームリーダーのメールを追加
+            },
+            {
+                "priority": 3,
                 "role": "user",
                 "condition_type": "default"
             }
