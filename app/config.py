@@ -347,7 +347,8 @@ if settings.is_development or settings.use_local_config:
         "required_groups": [],
         "allowed_groups": [],
         "required_org_units": [],
-        "allowed_org_units": [],
+        # 広報総務所属のユーザーのみログイン許可（アクセスゲート）
+        "allowed_org_units": ["/コンピュータ科/広報総務"],
         "redirect_uris": [
             "https://line-harness.iseifu-line.workers.dev/api/auth/callback",
             "http://localhost:8787/api/auth/callback",
@@ -358,6 +359,8 @@ if settings.is_development or settings.use_local_config:
         "refresh_token_expiry_days": 30,
         "api_proxy_enabled": False,
         "product_id": "product-LineHarness",
+        # ログインゲートで広報総務のみに絞った上で、
+        # 管理者メール以外は default で user ロールを付与する
         "role_rules": [
             {
                 "priority": 1,
@@ -368,8 +371,7 @@ if settings.is_development or settings.use_local_config:
             {
                 "priority": 2,
                 "role": "user",
-                "condition_type": "org_unit",
-                "org_unit_path": "/コンピュータ科/広報総務"
+                "condition_type": "default"
             }
         ]
     }
