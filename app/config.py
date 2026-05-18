@@ -397,7 +397,10 @@ if settings.is_development or settings.use_local_config:
         "allowed_groups": [],
         "required_org_units": [],
         "allowed_org_units": [],
-        "redirect_uris": ["http://localhost:5001/auth/callback"],
+        "redirect_uris": [
+            "https://kouhou-crm-856773980753.asia-northeast1.run.app/auth/callback",
+            "http://localhost:5001/auth/callback"
+        ],
         "token_delivery": "query_param",
         "token_expiry_days": 30,
         "api_proxy_enabled": True,
