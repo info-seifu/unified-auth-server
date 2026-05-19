@@ -385,24 +385,40 @@ if settings.is_development or settings.use_local_config:
         ]
     }
 
-    # 公報CRM
+    # 公報CRM（ガイダンス参加判断支援ツール）— 本番設定
     LOCAL_PROJECT_CONFIGS["kouhou-crm"] = {
-        "name": "公報CRM",
+        "name": "広報CRM（ガイダンス参加判断支援ツール）",
         "type": "web_app",
-        "description": "公報部門向けCRMシステム",
+        "description": "清風情報工科学院の広報スタッフがガイダンス案件の投票・決裁を行うツール",
         "allowed_domains": ["i-seifu.jp"],
         "student_allowed": False,
         "admin_emails": [],
         "required_groups": [],
         "allowed_groups": [],
         "required_org_units": [],
-        "allowed_org_units": [],
+        "allowed_org_units": [
+            "/コンピュータ科/広報総務"
+        ],
         "redirect_uris": [
             "https://kouhou-crm-856773980753.asia-northeast1.run.app/auth/callback",
             "http://localhost:5001/auth/callback"
         ],
         "token_delivery": "query_param",
-        "token_expiry_days": 30,
+        "token_expiry_days": 1,
+        "refresh_token_expiry_days": 30,
         "api_proxy_enabled": True,
-        "product_id": "kouhou-crm"
+        "product_id": "kouhou-crm",
+        "role_rules": [
+            {
+                "priority": 1,
+                "role": "admin",
+                "condition_type": "email_list",
+                "email_list": ["h.hamada@i-seifu.jp"]
+            },
+            {
+                "priority": 99,
+                "role": "voter",
+                "condition_type": "default"
+            }
+        ]
     }
