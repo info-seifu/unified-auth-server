@@ -397,7 +397,8 @@ if settings.is_development or settings.use_local_config:
         "allowed_groups": [],
         "required_org_units": [],
         "allowed_org_units": [
-            "/コンピュータ科/広報総務"
+            "/コンピュータ科/広報総務",
+            "/コンピュータ科/専任教員"
         ],
         "redirect_uris": [
             "https://kouhou-crm-856773980753.asia-northeast1.run.app/auth/callback",
