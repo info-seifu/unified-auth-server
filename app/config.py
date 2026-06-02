@@ -256,11 +256,12 @@ if settings.is_development or settings.use_local_config:
         "allowed_groups": [],
         "required_org_units": [],
         "allowed_org_units": [
-            "/コンピュータ科/広報総務"  # 組織部門ベースで広報部所属のみアクセス許可
+            "/コンピュータ科/専任教員",
+            "/コンピュータ科/広報総務"
         ],
         "redirect_uris": [
-            "http://localhost:5001/auth/callback",
-            # 本番URL（Cloud Run等にデプロイ後に追加）
+            "https://kouhou-crm-856773980753.asia-northeast1.run.app/auth/callback",  # 本番URL
+            "http://localhost:5001/auth/callback",  # ローカル開発用
         ],
         # 開発環境: query_param（異なるドメイン間ではcookieが使えないため）
         # 本番環境で同一ドメインの場合は cookie に変更可能
@@ -383,23 +384,4 @@ if settings.is_development or settings.use_local_config:
                 "condition_type": "default"
             }
         ]
-    }
-
-    # 公報CRM
-    LOCAL_PROJECT_CONFIGS["kouhou-crm"] = {
-        "name": "公報CRM",
-        "type": "web_app",
-        "description": "公報部門向けCRMシステム",
-        "allowed_domains": ["i-seifu.jp"],
-        "student_allowed": False,
-        "admin_emails": [],
-        "required_groups": [],
-        "allowed_groups": [],
-        "required_org_units": [],
-        "allowed_org_units": [],
-        "redirect_uris": ["http://localhost:5001/auth/callback"],
-        "token_delivery": "query_param",
-        "token_expiry_days": 30,
-        "api_proxy_enabled": True,
-        "product_id": "kouhou-crm"
     }
