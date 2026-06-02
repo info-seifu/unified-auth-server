@@ -247,7 +247,7 @@ if settings.is_development or settings.use_local_config:
     # 広報CRM（ガイダンス参加判断支援ツール）
     LOCAL_PROJECT_CONFIGS["kouhou-crm"] = {
         "name": "広報CRM（ガイダンス参加判断支援ツール）",
-        "type": "webapp",
+        "type": "web_app",
         "description": "清風情報工科学院の広報スタッフがガイダンス案件の投票・決裁を行うツール",
         "allowed_domains": ["i-seifu.jp"],
         "student_allowed": False,
