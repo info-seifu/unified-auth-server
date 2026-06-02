@@ -247,7 +247,7 @@ if settings.is_development or settings.use_local_config:
     # 広報CRM（ガイダンス参加判断支援ツール）
     LOCAL_PROJECT_CONFIGS["kouhou-crm"] = {
         "name": "広報CRM（ガイダンス参加判断支援ツール）",
-        "type": "webapp",
+        "type": "web_app",
         "description": "清風情報工科学院の広報スタッフがガイダンス案件の投票・決裁を行うツール",
         "allowed_domains": ["i-seifu.jp"],
         "student_allowed": False,
@@ -256,11 +256,12 @@ if settings.is_development or settings.use_local_config:
         "allowed_groups": [],
         "required_org_units": [],
         "allowed_org_units": [
-            "/コンピュータ科/広報総務"  # 組織部門ベースで広報部所属のみアクセス許可
+            "/コンピュータ科/専任教員",
+            "/コンピュータ科/広報総務"
         ],
         "redirect_uris": [
-            "http://localhost:5001/auth/callback",
-            # 本番URL（Cloud Run等にデプロイ後に追加）
+            "https://kouhou-crm-856773980753.asia-northeast1.run.app/auth/callback",  # 本番URL
+            "http://localhost:5001/auth/callback",  # ローカル開発用
         ],
         # 開発環境: query_param（異なるドメイン間ではcookieが使えないため）
         # 本番環境で同一ドメインの場合は cookie に変更可能
@@ -380,45 +381,6 @@ if settings.is_development or settings.use_local_config:
             {
                 "priority": 3,
                 "role": "user",
-                "condition_type": "default"
-            }
-        ]
-    }
-
-    # 公報CRM（ガイダンス参加判断支援ツール）— 本番設定
-    LOCAL_PROJECT_CONFIGS["kouhou-crm"] = {
-        "name": "広報CRM（ガイダンス参加判断支援ツール）",
-        "type": "web_app",
-        "description": "清風情報工科学院の広報スタッフがガイダンス案件の投票・決裁を行うツール",
-        "allowed_domains": ["i-seifu.jp"],
-        "student_allowed": False,
-        "admin_emails": [],
-        "required_groups": [],
-        "allowed_groups": [],
-        "required_org_units": [],
-        "allowed_org_units": [
-            "/コンピュータ科/広報総務",
-            "/コンピュータ科/専任教員"
-        ],
-        "redirect_uris": [
-            "https://kouhou-crm-856773980753.asia-northeast1.run.app/auth/callback",
-            "http://localhost:5001/auth/callback"
-        ],
-        "token_delivery": "query_param",
-        "token_expiry_days": 1,
-        "refresh_token_expiry_days": 30,
-        "api_proxy_enabled": True,
-        "product_id": "kouhou-crm",
-        "role_rules": [
-            {
-                "priority": 1,
-                "role": "admin",
-                "condition_type": "email_list",
-                "email_list": ["h.hamada@i-seifu.jp"]
-            },
-            {
-                "priority": 99,
-                "role": "voter",
                 "condition_type": "default"
             }
         ]
