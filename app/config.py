@@ -255,9 +255,12 @@ if settings.is_development or settings.use_local_config:
         "required_groups": [],
         "allowed_groups": [],
         "required_org_units": [],
+        # コンピュータ学科とその配下（広報総務 等）を許可。
+        # check_org_unit_hierarchy が前方一致判定するため、親OUを1つ指定すれば
+        # 配下のサブOU（広報総務・容量上限200G 等）も自動的に含まれる。
+        # 注: パスは Google Workspace の orgUnitPath と完全一致が必要。
         "allowed_org_units": [
-            "/コンピュータ科/専任教員",
-            "/コンピュータ科/広報総務"
+            "/01_教職員/1専任教員・常勤職員/コンピュータ学科"
         ],
         "redirect_uris": [
             "https://kouhou-crm-856773980753.asia-northeast1.run.app/auth/callback",  # 本番URL
@@ -349,7 +352,8 @@ if settings.is_development or settings.use_local_config:
         "allowed_groups": [],
         "required_org_units": [],
         # 広報総務所属のユーザーのみログイン許可（アクセスゲート）
-        "allowed_org_units": ["/コンピュータ科/広報総務"],
+        # 注: パスは Google Workspace の orgUnitPath と完全一致が必要。
+        "allowed_org_units": ["/01_教職員/1専任教員・常勤職員/コンピュータ学科/広報総務"],
         "redirect_uris": [
             "https://line-harness.iseifu-line.workers.dev/api/auth/callback",
             "http://localhost:8787/api/auth/callback",
