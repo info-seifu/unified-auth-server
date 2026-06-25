@@ -244,6 +244,50 @@ if settings.is_development or settings.use_local_config:
         "api_proxy_enabled": False
     }
 
+    # 広報CRM（ガイダンス参加判断支援ツール）
+    LOCAL_PROJECT_CONFIGS["kouhou-crm"] = {
+        "name": "広報CRM（ガイダンス参加判断支援ツール）",
+        "type": "web_app",
+        "description": "清風情報工科学院の広報スタッフがガイダンス案件の投票・決裁を行うツール",
+        "allowed_domains": ["i-seifu.jp"],
+        "student_allowed": False,
+        "admin_emails": [],
+        "required_groups": [],
+        "allowed_groups": [],
+        "required_org_units": [],
+        # コンピュータ学科とその配下（広報総務 等）を許可。
+        # check_org_unit_hierarchy が前方一致判定するため、親OUを1つ指定すれば
+        # 配下のサブOU（広報総務・容量上限200G 等）も自動的に含まれる。
+        # 注: パスは Google Workspace の orgUnitPath と完全一致が必要。
+        "allowed_org_units": [
+            "/01_教職員/1専任教員・常勤職員/コンピュータ学科"
+        ],
+        "redirect_uris": [
+            "https://kouhou-crm-856773980753.asia-northeast1.run.app/auth/callback",  # 本番URL
+            "http://localhost:5001/auth/callback",  # ローカル開発用
+        ],
+        # 開発環境: query_param（異なるドメイン間ではcookieが使えないため）
+        # 本番環境で同一ドメインの場合は cookie に変更可能
+        "token_delivery": "query_param",
+        "token_expiry_days": 1,
+        "refresh_token_expiry_days": 30,
+        "api_proxy_enabled": True,
+        "product_id": "kouhou-crm",
+        "role_rules": [
+            {
+                "priority": 1,
+                "role": "admin",
+                "condition_type": "email_list",
+                "email_list": ["h.hamada@i-seifu.jp"]
+            },
+            {
+                "priority": 99,
+                "role": "voter",
+                "condition_type": "default"
+            }
+        ]
+    }
+
     # 進路指導ポータル Shinro Compass
     LOCAL_PROJECT_CONFIGS["shinro-compass"] = {
         "name": "進路指導ポータル Shinro Compass",
@@ -341,48 +385,6 @@ if settings.is_development or settings.use_local_config:
             {
                 "priority": 3,
                 "role": "user",
-                "condition_type": "default"
-            }
-        ]
-    }
-
-    # 広報CRM（ガイダンス参加判断支援ツール）— 本番設定
-    LOCAL_PROJECT_CONFIGS["kouhou-crm"] = {
-        "name": "広報CRM（ガイダンス参加判断支援ツール）",
-        "type": "web_app",
-        "description": "清風情報工科学院の広報スタッフがガイダンス案件の投票・決裁を行うツール",
-        "allowed_domains": ["i-seifu.jp"],
-        "student_allowed": False,
-        "admin_emails": [],
-        "required_groups": [],
-        "allowed_groups": [],
-        "required_org_units": [],
-        # コンピュータ学科とその配下（広報総務 等）を許可。
-        # check_org_unit_hierarchy が前方一致判定するため、親OUを1つ指定すれば
-        # 配下のサブOU（広報総務・容量上限200G 等）も自動的に含まれる。
-        # 注: パスは Google Workspace の orgUnitPath と完全一致が必要。
-        "allowed_org_units": [
-            "/01_教職員/1専任教員・常勤職員/コンピュータ学科"
-        ],
-        "redirect_uris": [
-            "https://kouhou-crm-856773980753.asia-northeast1.run.app/auth/callback",
-            "http://localhost:5001/auth/callback"
-        ],
-        "token_delivery": "query_param",
-        "token_expiry_days": 1,
-        "refresh_token_expiry_days": 30,
-        "api_proxy_enabled": True,
-        "product_id": "kouhou-crm",
-        "role_rules": [
-            {
-                "priority": 1,
-                "role": "admin",
-                "condition_type": "email_list",
-                "email_list": ["h.hamada@i-seifu.jp"]
-            },
-            {
-                "priority": 99,
-                "role": "voter",
                 "condition_type": "default"
             }
         ]
